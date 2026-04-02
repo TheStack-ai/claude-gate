@@ -5,9 +5,12 @@ import path from 'node:path';
 
 import { createRequestClassifier } from './classifier.mjs';
 import { respondWithOpenAICompletion, shouldHandle529Fallback, supportsOpenAIProxyResponse } from './fallback.mjs';
+import { convertAnthropicToOpenAI } from './format.mjs';
+import { convertOpenAIToAnthropicResponse } from './fallback.mjs';
 import { MetricsLogger } from './logger.mjs';
 import { selectRoute } from './router.mjs';
 import { createShadowEvaluator } from './shadow.mjs';
+import { callCodexCli } from './codex-bridge.mjs';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -307,11 +310,44 @@ export async function proxyRequest({
       });
     }
   } else if (route?.target === 'openai' && !canUseOpenAIResponse) {
-    log.info?.('[claude-gate] skipping openai route for streaming request', {
-      requestId,
-      route: route.name,
-      querySource: classification.querySource,
-    });
+    // Streaming request → call Codex CLI, convert response to Anthropic format, fake-stream it
+    try {
+      const anthropicBody = tryParseJsonBuffer(bodyBuffer);
+      const openaiBody = convertAnthropicToOpenAI(anthropicBody, config.openai);
+      const model = route.model || config?.openai?.default_model || 'gpt-5.4';
+      const codexResult = await callCodexCli({
+        messages: openaiBody.messages || [],
+        tools: openaiBody.tools || [],
+        model,
+      });
+
+      if (codexResult.error) {
+        throw new Error(codexResult.error.message || 'codex_cli_error');
+      }
+
+      const anthropicResponse = convertOpenAIToAnthropicResponse(codexResult, { model });
+      const payload = Buffer.from(JSON.stringify(anthropicResponse));
+
+      turn?.setRoutedTo?.('openai');
+      turn?.setResponseInfo?.({ status: 200, headers: { 'content-type': 'application/json' } });
+      if (turn?.record) turn.record.model = model;
+      turn?.addUsage?.(anthropicResponse.usage);
+      turn?.observeChunk?.(payload);
+
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': payload.length,
+      });
+      res.end(payload);
+      await finalizeTurn(200);
+      return;
+    } catch (error) {
+      log.error?.('[claude-gate] streaming codex route failed; falling back to anthropic', {
+        error: error.message,
+        requestId,
+        route: route.name,
+      });
+    }
   }
 
   const upstreamBaseUrl = new URL(config.anthropic.base_url);

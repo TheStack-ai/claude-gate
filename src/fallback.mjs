@@ -116,13 +116,12 @@ export function shouldHandle529Fallback({ config = {}, classification = {}, resp
     return false;
   }
 
-  if (typeof classification?.querySource !== 'string' || !classification.querySource.startsWith('agent:')) {
-    return false;
-  }
-
   const targetSources = config?.fallback_529?.target_query_sources;
-  if (Array.isArray(targetSources) && targetSources.length > 0 && !targetSources.includes(classification.querySource)) {
-    return false;
+  if (Array.isArray(targetSources) && targetSources.length > 0) {
+    const qs = classification?.querySource;
+    if (qs && !targetSources.includes(qs)) {
+      return false;
+    }
   }
 
   if (anthropicBody && !supportsOpenAIProxyResponse(anthropicBody)) {

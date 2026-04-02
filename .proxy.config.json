@@ -10,16 +10,26 @@
   },
   "shadow": {
     "enabled": true,
-    "target_query_sources": ["agent:custom", "agent:default"],
+    "target_query_sources": ["agent:custom", "agent:default", "compact", "verification_agent"],
     "max_tool_count": 5,
     "thinking_enabled": false
   },
   "routing": {
-    "enabled": false,
-    "rules": []
+    "enabled": true,
+    "rules": [
+      {
+        "name": "tool-continuation-to-codex",
+        "enabled": true,
+        "target": "openai",
+        "model": "gpt-5.4",
+        "condition": {
+          "last_message_tool_result": true
+        }
+      }
+    ]
   },
   "fallback_529": {
-    "enabled": false,
-    "target_query_sources": ["agent:custom", "agent:default"]
+    "enabled": true,
+    "target_query_sources": []
   }
 }

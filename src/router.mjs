@@ -25,6 +25,14 @@ function matchesThinking(thinking, thinkingEnabled) {
   return Boolean(thinking) === thinkingEnabled;
 }
 
+function matchesLastMessageToolResult(lastMessageIsToolResult, conditionValue) {
+  if (typeof conditionValue !== 'boolean') {
+    return true;
+  }
+
+  return lastMessageIsToolResult === conditionValue;
+}
+
 export function matchesRoutingRule(rule, classification = {}) {
   if (!rule || typeof rule !== 'object' || rule.enabled === false) {
     return false;
@@ -35,7 +43,8 @@ export function matchesRoutingRule(rule, classification = {}) {
   return (
     matchesQuerySource(classification.querySource ?? null, condition.query_source) &&
     matchesToolCount(classification.toolCount ?? 0, condition.tool_count_max) &&
-    matchesThinking(classification.thinking ?? false, condition.thinking_enabled)
+    matchesThinking(classification.thinking ?? false, condition.thinking_enabled) &&
+    matchesLastMessageToolResult(classification.lastMessageIsToolResult ?? false, condition.last_message_tool_result)
   );
 }
 

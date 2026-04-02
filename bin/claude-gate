@@ -206,20 +206,30 @@ async function commandInit() {
       thinking_enabled: false,
     },
     routing: {
-      enabled: false,
-      rules: [],
+      enabled: hasCodex,
+      rules: [
+        {
+          name: 'tool-continuation-to-codex',
+          enabled: hasCodex,
+          target: 'openai',
+          model: 'gpt-5.4',
+          condition: {
+            last_message_tool_result: true,
+          },
+        },
+      ],
     },
     fallback_529: {
-      enabled: false,
-      target_query_sources: ['agent:custom', 'agent:default', 'compact', 'verification_agent'],
+      enabled: hasCodex,
+      target_query_sources: [],
     },
   };
 
   await fs.writeFile(USER_CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
   console.log(`Config created: ${USER_CONFIG_PATH}`);
   console.log(`  Shadow eval: ${hasCodex ? 'enabled (Codex CLI detected)' : 'disabled (install Codex CLI to enable)'}`);
-  console.log(`  Routing:     disabled (edit config to enable)`);
-  console.log(`  529 fallback: disabled (edit config to enable)`);
+  console.log(`  Routing:     ${hasCodex ? 'enabled (tool continuations → Codex)' : 'disabled (install Codex CLI to enable)'}`);
+  console.log(`  529 fallback: ${hasCodex ? 'enabled' : 'disabled (install Codex CLI to enable)'}`);
   console.log(`\nStart with:\n  claude-gate run`);
 }
 

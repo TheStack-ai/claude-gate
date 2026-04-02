@@ -2,14 +2,6 @@ const DEFAULT_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_TRACKED_REQUESTS = 10_000;
 const AGENT_QUERY_SOURCE_PREFIX = 'agent:';
 
-export const KNOWN_QUERY_SOURCES = Object.freeze([
-  'repl_main_thread',
-  'agent:custom',
-  'agent:default',
-  'compact',
-  'verification_agent',
-]);
-
 function normalizeHeaderValue(value) {
   if (Array.isArray(value)) {
     return value[0] ?? null;
@@ -72,6 +64,16 @@ function isAgentQuerySource(querySource) {
   return typeof querySource === 'string' && querySource.startsWith(AGENT_QUERY_SOURCE_PREFIX);
 }
 
+function detectLastMessageIsToolResult(body) {
+  const messages = body?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  const last = messages[messages.length - 1];
+  if (last?.role !== 'user') return false;
+  const content = last?.content;
+  if (!Array.isArray(content)) return false;
+  return content.some(block => block?.type === 'tool_result');
+}
+
 export class RequestClassifier {
   constructor(options = {}) {
     this.retryWindowMs = options.retryWindowMs ?? DEFAULT_RETRY_WINDOW_MS;
@@ -92,7 +94,8 @@ export class RequestClassifier {
     const thinking = isThinkingEnabled(body?.thinking);
     const speed = body?.speed ?? null;
     const model = body?.model ?? null;
-    const shadowEligible = isAgentQuerySource(querySource) && toolCount <= 5 && !thinking;
+    const lastMessageIsToolResult = detectLastMessageIsToolResult(body);
+    const shadowEligible = lastMessageIsToolResult || (isAgentQuerySource(querySource) && toolCount <= 5 && !thinking);
 
     return {
       sessionId,
@@ -105,9 +108,10 @@ export class RequestClassifier {
       speed,
       thinking,
       shadowEligible,
+      lastMessageIsToolResult,
       rawBodyBytes: bodyBuffer.length,
       parseOk: body !== null,
-      isKnownQuerySource: querySource ? KNOWN_QUERY_SOURCES.includes(querySource) : false,
+      isKnownQuerySource: false,
     };
   }
 
