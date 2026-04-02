@@ -48,13 +48,14 @@ async function commandStart() {
   await writePidFile(process.pid);
 
   const shadowStatus = proxy.config.shadow?.enabled ? 'enabled' : 'disabled';
-  const apiKeySet = process.env[proxy.config.openai?.api_key_env || 'OPENAI_API_KEY'] ? 'set' : 'not set';
+  const routingStatus = proxy.config.routing?.enabled ? 'enabled' : 'disabled';
 
   console.log(`claude-proxy started`);
-  console.log(`  Listen:  http://${proxy.host}:${proxy.port}`);
-  console.log(`  Config:  ${configPath}`);
-  console.log(`  Shadow:  ${shadowStatus} (OPENAI_API_KEY: ${apiKeySet})`);
-  console.log(`  PID:     ${process.pid}`);
+  console.log(`  Listen:   http://${proxy.host}:${proxy.port}`);
+  console.log(`  Config:   ${configPath}`);
+  console.log(`  Shadow:   ${shadowStatus} (via Codex CLI)`);
+  console.log(`  Routing:  ${routingStatus}`);
+  console.log(`  PID:      ${process.pid}`);
   console.log(`\nUsage:\n  ANTHROPIC_BASE_URL=http://${proxy.host}:${proxy.port} claude`);
 
   const cleanup = async () => {
