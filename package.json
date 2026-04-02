@@ -1,18 +1,40 @@
 {
-  "name": "claude-proxy",
-  "version": "0.1.0",
-  "description": "Local observability proxy for Claude Code API traffic with Codex shadow evaluation",
+  "name": "claude-gate",
+  "version": "1.0.0",
+  "description": "Local observability gateway for Claude Code — monitor, route, and optimize API traffic",
   "type": "module",
   "bin": {
-    "claude-proxy": "./bin/claude-proxy"
+    "claude-gate": "./bin/claude-gate"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "start": "node bin/claude-proxy start",
-    "test": "node --test test/"
+    "start": "node bin/claude-gate start",
+    "test": "node --test 'test/*.test.mjs'"
   },
-  "keywords": ["claude", "proxy", "observability", "llm"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "proxy",
+    "gateway",
+    "observability",
+    "llm",
+    "anthropic"
+  ],
   "author": "DD",
-  "license": "MIT",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheStack-ai/claude-gate.git"
+  },
+  "homepage": "https://github.com/TheStack-ai/claude-gate",
+  "bugs": {
+    "url": "https://github.com/TheStack-ai/claude-gate/issues"
+  },
   "engines": {
     "node": ">=18.0.0"
   }

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const DEFAULT_RETENTION_DAYS = 7;
-const DEFAULT_LOG_PATH = path.join(os.homedir(), '.claude-proxy', 'logs', 'metrics.jsonl');
+const DEFAULT_LOG_PATH = path.join(os.homedir(), '.claude-gate', 'logs', 'metrics.jsonl');
 
 function headerValue(headers, name) {
   const value = headers?.[name];

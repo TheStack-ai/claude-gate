@@ -8,8 +8,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-test('claude-proxy advise prints formatted advisor output', async (t) => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-cli-'));
+test('claude-gate advise prints formatted advisor output', async (t) => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-gate-cli-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -55,7 +55,7 @@ test('claude-proxy advise prints formatted advisor output', async (t) => {
   ].join('\n'));
 
   const { stdout } = await execFileAsync(process.execPath, [
-    path.join(process.cwd(), 'bin', 'claude-proxy'),
+    path.join(process.cwd(), 'bin', 'claude-gate'),
     'advise',
     '--log',
     logPath,

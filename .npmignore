@@ -1,0 +1,9 @@
+.claude/
+.codex/
+.omx/
+openspec/
+CLAUDE.md
+test/
+.proxy.config.json
+.gitignore
+.git/

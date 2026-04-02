@@ -33,7 +33,7 @@ const DEFAULT_CONFIG = Object.freeze({
   },
   shadow: {
     enabled: true,
-    target_query_sources: ['agent:custom', 'agent:default'],
+    target_query_sources: ['agent:custom', 'agent:default', 'compact', 'verification_agent'],
     max_tool_count: 5,
     thinking_enabled: false,
   },
@@ -43,7 +43,7 @@ const DEFAULT_CONFIG = Object.freeze({
   },
   fallback_529: {
     enabled: false,
-    target_query_sources: ['agent:custom', 'agent:default'],
+    target_query_sources: ['agent:custom', 'agent:default', 'compact', 'verification_agent'],
   },
 });
 
@@ -214,7 +214,15 @@ async function closeServer(server) {
   });
 }
 
-export async function loadProxyConfig({ configPath = path.resolve(process.cwd(), '.proxy.config.json') } = {}) {
+export async function loadProxyConfig({ configPath } = {}) {
+  if (!configPath) {
+    return {
+      config: structuredClone(DEFAULT_CONFIG),
+      configPath: null,
+      loadedFromDisk: false,
+    };
+  }
+
   try {
     const raw = await fs.readFile(configPath, 'utf8');
     const parsed = JSON.parse(raw);
@@ -292,14 +300,14 @@ export async function proxyRequest({
       await finalizeTurn(200);
       return;
     } catch (error) {
-      log.error?.('[claude-proxy] openai route failed; falling back to anthropic', {
+      log.error?.('[claude-gate] openai route failed; falling back to anthropic', {
         error: error.message,
         requestId,
         route: route.name,
       });
     }
   } else if (route?.target === 'openai' && !canUseOpenAIResponse) {
-    log.info?.('[claude-proxy] skipping openai route for streaming request', {
+    log.info?.('[claude-gate] skipping openai route for streaming request', {
       requestId,
       route: route.name,
       querySource: classification.querySource,
@@ -354,7 +362,7 @@ export async function proxyRequest({
             await finalizeTurn(200);
             return;
           } catch (error) {
-            log.error?.('[claude-proxy] 529 fallback to openai failed; returning anthropic 529', {
+            log.error?.('[claude-gate] 529 fallback to openai failed; returning anthropic 529', {
               error: error.message,
               requestId,
             });
@@ -435,7 +443,7 @@ export async function proxyRequest({
                       resolve(200);
                       return;
                     } catch (error) {
-                      log.error?.('[claude-proxy] 529 fallback to openai failed; returning anthropic 529', {
+                      log.error?.('[claude-gate] 529 fallback to openai failed; returning anthropic 529', {
                         error: error.message,
                         requestId,
                       });
@@ -490,7 +498,7 @@ export async function proxyRequest({
   } catch (error) {
     const status = abortController.signal.aborted ? 499 : (error.proxyStatus ?? 502);
 
-    log.error?.('[claude-proxy] upstream request failed', {
+    log.error?.('[claude-gate] upstream request failed', {
       error: error.message,
       requestId,
       upstream: upstreamUrl.toString(),
@@ -535,7 +543,7 @@ export async function startProxyServer(options = {}) {
     try {
       await proxyRequest({ req, res, config, logger, classifier, log, shadow, openAIRequestImpl: options.openAIRequestImpl ?? null });
     } catch (error) {
-      log.error?.('[claude-proxy] request handling failed', {
+      log.error?.('[claude-gate] request handling failed', {
         error: error.message,
         headers: sanitizeHeadersForLog(req.headers),
       });
@@ -592,7 +600,7 @@ export async function startProxyServer(options = {}) {
         clearTimeout(forceCloseTimer);
         process.off('SIGINT', onSigint);
         process.off('SIGTERM', onSigterm);
-        log.info?.('[claude-proxy] stopped', { reason });
+        log.info?.('[claude-gate] stopped', { reason });
       }
     })();
 

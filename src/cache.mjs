@@ -72,7 +72,7 @@ export class RetryResponseCache {
     this.entries.set(requestId, entry);
 
     const ageMs = this.now() - entry.storedAt;
-    this.log.info?.('[claude-proxy] retry response cache hit', {
+    this.log.info?.('[claude-gate] retry response cache hit', {
       event: 'retry_response_cache_hit',
       request_id: requestId,
       age_ms: ageMs,

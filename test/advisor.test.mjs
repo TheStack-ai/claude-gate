@@ -68,7 +68,7 @@ test('analyzeMetricsRecords generates warnings from Phase 3 advisor rules', () =
 });
 
 test('adviseFromLog reads JSONL, ignores malformed lines, and formats Korean output', async (t) => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-advisor-'));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-gate-advisor-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });

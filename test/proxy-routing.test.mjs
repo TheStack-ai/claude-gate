@@ -61,7 +61,7 @@ function silentLog() {
 }
 
 test('proxy routes matching agent requests directly to openai', async (t) => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-routing-'));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-gate-routing-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -167,7 +167,7 @@ test('proxy routes matching agent requests directly to openai', async (t) => {
 });
 
 test('proxy falls back to openai on anthropic 529 before streaming starts', async (t) => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-fallback-'));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-gate-fallback-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });

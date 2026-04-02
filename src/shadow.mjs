@@ -5,7 +5,7 @@ import path from 'node:path';
 import { convertAnthropicToOpenAI } from './format.mjs';
 import { callCodexCli, isCodexAvailable } from './codex-bridge.mjs';
 
-const DEFAULT_SHADOW_LOG_PATH = path.join(os.homedir(), '.claude-proxy', 'logs', 'shadow.jsonl');
+const DEFAULT_SHADOW_LOG_PATH = path.join(os.homedir(), '.claude-gate', 'logs', 'shadow.jsonl');
 
 function jaccardSimilarity(a, b) {
   if (!a && !b) return 1;

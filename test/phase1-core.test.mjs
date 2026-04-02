@@ -92,7 +92,7 @@ test('classifier parses query source, retry, and shadow eligibility without muta
 });
 
 test('logger writes per-turn metrics and session aggregates from SSE events', async (t) => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-logger-'));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-gate-logger-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -153,7 +153,7 @@ test('logger writes per-turn metrics and session aggregates from SSE events', as
 });
 
 test('proxy forwards raw body unchanged and tees SSE metrics without buffering', async (t) => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-proxy-'));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-gate-proxy-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });

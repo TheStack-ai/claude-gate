@@ -3,20 +3,35 @@ import test from 'node:test';
 
 import { translateQuerySource, translateRoutedTo, progressBar, createSessionState, ingestRecord } from '../src/dashboard.mjs';
 
-test('translateQuerySource maps known sources to Korean labels', () => {
-  assert.equal(translateQuerySource('repl_main_thread', 0), '대표님 직접 대화');
-  assert.equal(translateQuerySource('compact', 0), '맥락 압축');
-  assert.equal(translateQuerySource('verification_agent', 0), '검증 작업');
-  assert.equal(translateQuerySource('agent:custom', 3), 'AI 보조작업 (#3)');
-  assert.equal(translateQuerySource('agent:default', 7), 'AI 보조작업 (#7)');
-  assert.equal(translateQuerySource(null, 0), '알 수 없음');
+test('translateQuerySource defaults to English labels', () => {
+  assert.equal(translateQuerySource('repl_main_thread', 0), 'Direct conversation');
+  assert.equal(translateQuerySource('compact', 0), 'Context compression');
+  assert.equal(translateQuerySource('verification_agent', 0), 'Verification');
+  assert.equal(translateQuerySource('agent:custom', 3), 'Agent task (#3)');
+  assert.equal(translateQuerySource('agent:default', 7), 'Agent task (#7)');
+  assert.equal(translateQuerySource(null, 0), 'Unknown');
 });
 
-test('translateRoutedTo maps routing targets to Korean', () => {
+test('translateQuerySource supports Korean labels', () => {
+  assert.equal(translateQuerySource('repl_main_thread', 0, 'ko'), '대표님 직접 대화');
+  assert.equal(translateQuerySource('compact', 0, 'ko'), '맥락 압축');
+  assert.equal(translateQuerySource('verification_agent', 0, 'ko'), '검증 작업');
+  assert.equal(translateQuerySource('agent:custom', 3, 'ko'), 'AI 보조작업 (#3)');
+  assert.equal(translateQuerySource(null, 0, 'ko'), '알 수 없음');
+});
+
+test('translateRoutedTo maps routing targets in English by default', () => {
   assert.equal(translateRoutedTo('anthropic'), 'Claude');
   assert.equal(translateRoutedTo('openai'), 'Codex');
   assert.equal(translateRoutedTo('openai_fallback'), 'Codex');
   assert.equal(translateRoutedTo(null), '?');
+});
+
+test('translateRoutedTo supports Korean option', () => {
+  assert.equal(translateRoutedTo('anthropic', 'ko'), 'Claude');
+  assert.equal(translateRoutedTo('openai', 'ko'), 'Codex');
+  assert.equal(translateRoutedTo('openai_fallback', 'ko'), 'Codex');
+  assert.equal(translateRoutedTo(null, 'ko'), '?');
 });
 
 test('progressBar renders correct fill ratio', () => {
@@ -89,4 +104,20 @@ test('recentEvents caps at 10 entries', () => {
   }
   assert.equal(state.recentEvents.length, 10);
   assert.equal(state.turns, 15);
+});
+
+test('ingestRecord localizes event labels from state language', () => {
+  const state = createSessionState({ lang: 'ko' });
+
+  ingestRecord(state, {
+    ts: '2026-04-02T10:00:00Z',
+    query_source: 'agent:custom',
+    routed_to: 'openai',
+    input_tokens: 100,
+    output_tokens: 10,
+    status: 200,
+  });
+
+  assert.equal(state.recentEvents[0].label, 'AI 보조작업 (#1)');
+  assert.equal(state.recentEvents[0].target, 'Codex');
 });
