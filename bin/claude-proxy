@@ -154,12 +154,20 @@ async function commandStop() {
   }
 }
 
+async function commandDashboard() {
+  const sessionFilter = getFlag('--session', null);
+  const logPath = getFlag('--log', DEFAULT_LOG_PATH);
+  const { startDashboard } = await import('../src/dashboard.mjs');
+  await startDashboard({ logPath, session: sessionFilter });
+}
+
 function printUsage() {
   console.log(`claude-proxy — Local observability proxy for Claude Code
 
 Usage:
   claude-proxy start [--port 8080] [--host 127.0.0.1] [--config path]
   claude-proxy stats [--session <id>] [--log path]
+  claude-proxy dashboard [--session <id>] [--log path]
   claude-proxy stop`);
 }
 
@@ -169,6 +177,9 @@ switch (command) {
     break;
   case 'stats':
     await commandStats();
+    break;
+  case 'dashboard':
+    await commandDashboard();
     break;
   case 'stop':
     await commandStop();

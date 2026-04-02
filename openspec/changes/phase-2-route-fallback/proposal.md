@@ -28,7 +28,7 @@ Phase 1 데이터를 기반으로, Agent Worker 요청을 Codex로 실제 라우
 | `src/format-response.mjs` | OpenAI→Anthropic 응답 변환 | DONE |
 | `src/stream-converter.mjs` | SSE 스트리밍 변환 (OpenAI→Anthropic) | DONE |
 | `src/fallback.mjs` | 529 폴백 핸들러 | DONE |
-| `src/dashboard.mjs` | TUI 실시간 대시보드 | TODO |
+| `src/dashboard.mjs` | TUI 실시간 대시보드 (한국어, 일반인 친화) | DONE |
 
 ## Acceptance Criteria
 
