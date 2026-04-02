@@ -161,12 +161,31 @@ async function commandDashboard() {
   await startDashboard({ logPath, session: sessionFilter });
 }
 
+async function commandAdvise() {
+  const logPath = getFlag('--log', DEFAULT_LOG_PATH);
+
+  let exists = true;
+  try { await fs.access(logPath); } catch { exists = false; }
+  if (!exists) {
+    console.log('No metrics log found. Start the proxy and make some requests first.');
+    process.exit(0);
+  }
+
+  const { adviseFromLog } = await import('../src/advisor.mjs');
+  const result = await adviseFromLog({ logPath });
+
+  for (const line of result.lines) {
+    console.log(line);
+  }
+}
+
 function printUsage() {
   console.log(`claude-proxy — Local observability proxy for Claude Code
 
 Usage:
   claude-proxy start [--port 8080] [--host 127.0.0.1] [--config path]
   claude-proxy stats [--session <id>] [--log path]
+  claude-proxy advise [--log path]
   claude-proxy dashboard [--session <id>] [--log path]
   claude-proxy stop`);
 }
@@ -177,6 +196,9 @@ switch (command) {
     break;
   case 'stats':
     await commandStats();
+    break;
+  case 'advise':
+    await commandAdvise();
     break;
   case 'dashboard':
     await commandDashboard();
