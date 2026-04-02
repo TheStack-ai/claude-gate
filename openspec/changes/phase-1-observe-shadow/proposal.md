@@ -29,14 +29,14 @@
 
 | File | Description | Status |
 |------|-------------|--------|
-| `src/proxy.mjs` | HTTP 패스스루 프록시 서버 (raw-byte pass-through + SSE tee 관찰) | TODO |
-| `src/logger.mjs` | JSONL 메트릭 로거 (SSE 이벤트 단위 수집) | TODO |
-| `src/classifier.mjs` | querySource 파서 + 요청 분류기 | TODO |
-| `src/shadow.mjs` | Codex shadow evaluation 엔진 | TODO |
-| `src/format.mjs` | Anthropic→OpenAI 요청 변환 | TODO |
-| `.proxy.config.json` | 기본 설정 파일 | TODO |
-| `bin/claude-proxy` | CLI 엔트리포인트 | TODO |
-| `package.json` | 프로젝트 메타데이터 | TODO |
+| `src/proxy.mjs` | HTTP 패스스루 프록시 서버 (raw-byte pass-through + SSE tee 관찰) | DONE |
+| `src/logger.mjs` | JSONL 메트릭 로거 (SSE 이벤트 단위 수집) | DONE |
+| `src/classifier.mjs` | querySource 파서 + 요청 분류기 | DONE |
+| `src/shadow.mjs` | Codex shadow evaluation 엔진 | DONE |
+| `src/format.mjs` | Anthropic→OpenAI 요청 변환 | DONE |
+| `.proxy.config.json` | 기본 설정 파일 | DONE |
+| `bin/claude-proxy` | CLI 엔트리포인트 | DONE |
+| `package.json` | 프로젝트 메타데이터 | DONE |
 
 ## Acceptance Criteria
 

@@ -4,7 +4,9 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { createRequestClassifier } from './classifier.mjs';
+import { respondWithOpenAICompletion, shouldHandle529Fallback, supportsOpenAIProxyResponse } from './fallback.mjs';
 import { MetricsLogger } from './logger.mjs';
+import { selectRoute } from './router.mjs';
 import { createShadowEvaluator } from './shadow.mjs';
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -141,6 +143,56 @@ function selectTransport(url) {
   return url.protocol === 'https:' ? https : http;
 }
 
+function tryParseJsonBuffer(bodyBuffer) {
+  if (!Buffer.isBuffer(bodyBuffer) || bodyBuffer.length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(bodyBuffer.toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+
+    req.on('aborted', () => {
+      const error = new Error('client_aborted');
+      error.proxyStatus = 499;
+      reject(error);
+    });
+
+    req.on('error', reject);
+  });
+}
+
+function normalizeExecutorResponseBody(body) {
+  if (Buffer.isBuffer(body)) {
+    return body;
+  }
+
+  if (typeof body === 'string') {
+    return Buffer.from(body);
+  }
+
+  if (body == null) {
+    return Buffer.alloc(0);
+  }
+
+  return Buffer.from(JSON.stringify(body));
+}
+
 function jsonErrorBody(error, requestId) {
   return JSON.stringify({
     error: 'proxy_upstream_error',
@@ -184,10 +236,26 @@ export async function loadProxyConfig({ configPath = path.resolve(process.cwd(),
   }
 }
 
-async function proxyRequest({ req, res, config, logger, classifier, log, shadow }) {
+export async function proxyRequest({
+  req,
+  res,
+  config,
+  logger,
+  classifier,
+  log,
+  shadow,
+  anthropicExecutor = null,
+  openAIRequestImpl = null,
+}) {
   const requestStartedAt = Date.now();
   const requestId = normalizeHeaderValue(req.headers['x-client-request-id']);
   const sessionId = normalizeHeaderValue(req.headers['x-claude-code-session-id']);
+  const bodyBuffer = await readRequestBody(req);
+  const classification = classifier.classify({
+    headers: req.headers,
+    bodyBuffer,
+  });
+  const parsedBody = tryParseJsonBuffer(bodyBuffer);
   const turn = logger.createTurnContext({
     sessionId,
     requestId,
@@ -195,19 +263,8 @@ async function proxyRequest({ req, res, config, logger, classifier, log, shadow 
     routedTo: 'anthropic',
   });
 
-  const upstreamBaseUrl = new URL(config.anthropic.base_url);
-  const upstreamUrl = new URL(req.url ?? '/', upstreamBaseUrl);
-  const transport = selectTransport(upstreamUrl);
-  const upstreamHeaders = filterProxyHeaders(req.headers, upstreamUrl.host);
+  turn.setClassification(classification);
 
-  let resolveClassification;
-  let rejectClassification;
-  const classificationPromise = new Promise((resolve, reject) => {
-    resolveClassification = resolve;
-    rejectClassification = reject;
-  });
-
-  let shadowCtx = null;
   let finalized = false;
   const finalizeTurn = async (status) => {
     if (finalized) {
@@ -215,54 +272,223 @@ async function proxyRequest({ req, res, config, logger, classifier, log, shadow 
     }
 
     finalized = true;
-    await classificationPromise.catch(() => null);
     await turn.finalize({ status });
   };
 
+  const route = selectRoute(classification, config);
+  const canUseOpenAIResponse = supportsOpenAIProxyResponse(parsedBody);
+
+  if (route?.target === 'openai' && canUseOpenAIResponse) {
+    try {
+      await respondWithOpenAICompletion({
+        res,
+        turn,
+        bodyBuffer,
+        config,
+        model: route.model,
+        requestImpl: openAIRequestImpl,
+        routedTo: 'openai',
+      });
+      await finalizeTurn(200);
+      return;
+    } catch (error) {
+      log.error?.('[claude-proxy] openai route failed; falling back to anthropic', {
+        error: error.message,
+        requestId,
+        route: route.name,
+      });
+    }
+  } else if (route?.target === 'openai' && !canUseOpenAIResponse) {
+    log.info?.('[claude-proxy] skipping openai route for streaming request', {
+      requestId,
+      route: route.name,
+      querySource: classification.querySource,
+    });
+  }
+
+  const upstreamBaseUrl = new URL(config.anthropic.base_url);
+  const upstreamUrl = new URL(req.url ?? '/', upstreamBaseUrl);
+  const upstreamHeaders = filterProxyHeaders(req.headers, upstreamUrl.host);
+  const transport = selectTransport(upstreamUrl);
   const abortController = new AbortController();
-  const upstreamRequest = transport.request(
-    upstreamUrl,
-    {
-      method: req.method,
-      headers: upstreamHeaders,
-      signal: abortController.signal,
-    },
-    (upstreamResponse) => {
-      turn.setResponseInfo({
-        status: upstreamResponse.statusCode,
-        headers: upstreamResponse.headers,
-      });
+  let shadowCtx = null;
 
-      res.writeHead(upstreamResponse.statusCode ?? 502, filterResponseHeaders(upstreamResponse.headers));
-      upstreamResponse.on('data', (chunk) => {
-        turn.observeChunk(chunk);
-        shadowCtx?.observeChunk(chunk);
-      });
-
-      upstreamResponse.on('error', async (error) => {
-        log.error?.('[claude-proxy] upstream response error', {
-          error: error.message,
-          requestId,
-        });
-        res.destroy(error);
-        await finalizeTurn(upstreamResponse.statusCode ?? 502);
-      });
-
-      upstreamResponse.on('end', async () => {
-        shadowCtx?.complete();
-        await finalizeTurn(upstreamResponse.statusCode ?? 200);
-      });
-
-      upstreamResponse.pipe(res);
-    },
-  );
-
-  upstreamRequest.on('drain', () => {
-    req.resume();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
   });
 
-  upstreamRequest.on('error', async (error) => {
-    const status = abortController.signal.aborted ? 499 : 502;
+  try {
+    if (typeof anthropicExecutor === 'function') {
+      const upstreamResponse = await anthropicExecutor({
+        url: upstreamUrl,
+        method: req.method,
+        headers: upstreamHeaders,
+        bodyBuffer,
+        signal: abortController.signal,
+      });
+      const statusCode = upstreamResponse?.statusCode ?? 502;
+      const responseHeaders = upstreamResponse?.headers ?? {};
+      const responseBody = normalizeExecutorResponseBody(upstreamResponse?.body);
+
+      if (statusCode === 529) {
+        const fallbackEligible = shouldHandle529Fallback({
+          config,
+          classification,
+          responseBytes: 0,
+          anthropicBody: parsedBody,
+        });
+
+        if (fallbackEligible) {
+          try {
+            await respondWithOpenAICompletion({
+              res,
+              turn,
+              bodyBuffer,
+              config,
+              model: config?.openai?.default_model,
+              requestImpl: openAIRequestImpl,
+              routedTo: 'openai_fallback',
+            });
+            await finalizeTurn(200);
+            return;
+          } catch (error) {
+            log.error?.('[claude-proxy] 529 fallback to openai failed; returning anthropic 529', {
+              error: error.message,
+              requestId,
+            });
+          }
+        }
+
+        turn.setResponseInfo({
+          status: statusCode,
+          headers: responseHeaders,
+        });
+        if (responseBody.length > 0) {
+          turn.observeChunk(responseBody);
+        }
+
+        res.writeHead(statusCode, filterResponseHeaders(responseHeaders));
+        res.end(responseBody);
+        await finalizeTurn(statusCode);
+        return;
+      }
+
+      turn.setResponseInfo({
+        status: statusCode,
+        headers: responseHeaders,
+      });
+      shadowCtx = shadow?.maybeStart(classification, bodyBuffer);
+      if (responseBody.length > 0) {
+        turn.observeChunk(responseBody);
+        shadowCtx?.observeChunk(responseBody);
+      }
+      shadowCtx?.complete();
+
+      res.writeHead(statusCode, filterResponseHeaders(responseHeaders));
+      res.end(responseBody);
+      await finalizeTurn(statusCode);
+      return;
+    }
+
+    const status = await new Promise((resolve, reject) => {
+      const upstreamRequest = transport.request(
+        upstreamUrl,
+        {
+          method: req.method,
+          headers: upstreamHeaders,
+          signal: abortController.signal,
+        },
+        (upstreamResponse) => {
+          void (async () => {
+            try {
+              if (upstreamResponse.statusCode === 529) {
+                const chunks = [];
+
+                upstreamResponse.on('data', (chunk) => {
+                  chunks.push(chunk);
+                });
+
+                upstreamResponse.on('error', reject);
+
+                upstreamResponse.on('end', async () => {
+                  const responseBody = Buffer.concat(chunks);
+                  const fallbackEligible = shouldHandle529Fallback({
+                    config,
+                    classification,
+                    responseBytes: 0,
+                    anthropicBody: parsedBody,
+                  });
+
+                  if (fallbackEligible) {
+                    try {
+                      await respondWithOpenAICompletion({
+                        res,
+                        turn,
+                        bodyBuffer,
+                        config,
+                        model: config?.openai?.default_model,
+                        requestImpl: openAIRequestImpl,
+                        routedTo: 'openai_fallback',
+                      });
+                      resolve(200);
+                      return;
+                    } catch (error) {
+                      log.error?.('[claude-proxy] 529 fallback to openai failed; returning anthropic 529', {
+                        error: error.message,
+                        requestId,
+                      });
+                    }
+                  }
+
+                  turn.setResponseInfo({
+                    status: upstreamResponse.statusCode,
+                    headers: upstreamResponse.headers,
+                  });
+                  if (responseBody.length > 0) {
+                    turn.observeChunk(responseBody);
+                  }
+
+                  res.writeHead(upstreamResponse.statusCode ?? 529, filterResponseHeaders(upstreamResponse.headers));
+                  res.end(responseBody);
+                  resolve(upstreamResponse.statusCode ?? 529);
+                });
+
+                return;
+              }
+
+              turn.setResponseInfo({
+                status: upstreamResponse.statusCode,
+                headers: upstreamResponse.headers,
+              });
+              shadowCtx = shadow?.maybeStart(classification, bodyBuffer);
+
+              res.writeHead(upstreamResponse.statusCode ?? 502, filterResponseHeaders(upstreamResponse.headers));
+              upstreamResponse.on('data', (chunk) => {
+                turn.observeChunk(chunk);
+                shadowCtx?.observeChunk(chunk);
+              });
+              upstreamResponse.on('error', reject);
+              upstreamResponse.on('end', () => {
+                shadowCtx?.complete();
+                resolve(upstreamResponse.statusCode ?? 200);
+              });
+              upstreamResponse.pipe(res);
+            } catch (error) {
+              reject(error);
+            }
+          })();
+        },
+      );
+
+      upstreamRequest.on('error', reject);
+      upstreamRequest.end(bodyBuffer);
+    });
+
+    await finalizeTurn(status);
+  } catch (error) {
+    const status = abortController.signal.aborted ? 499 : (error.proxyStatus ?? 502);
 
     log.error?.('[claude-proxy] upstream request failed', {
       error: error.message,
@@ -279,51 +505,8 @@ async function proxyRequest({ req, res, config, logger, classifier, log, shadow 
       res.end(jsonErrorBody(error, requestId));
     }
 
-    rejectClassification(error);
     await finalizeTurn(status);
-  });
-
-  const requestChunks = [];
-
-  req.on('data', (chunk) => {
-    requestChunks.push(chunk);
-    const canContinue = upstreamRequest.write(chunk);
-    if (!canContinue) {
-      req.pause();
-    }
-  });
-
-  req.on('end', () => {
-    const bodyBuffer = Buffer.concat(requestChunks);
-    const classification = classifier.classify({
-      headers: req.headers,
-      bodyBuffer,
-    });
-
-    turn.setClassification(classification);
-    resolveClassification(classification);
-    shadowCtx = shadow?.maybeStart(classification, bodyBuffer);
-    upstreamRequest.end();
-  });
-
-  req.on('aborted', () => {
-    abortController.abort();
-  });
-
-  req.on('error', (error) => {
-    rejectClassification(error);
-    abortController.abort();
-    res.destroy(error);
-  });
-
-  res.on('close', async () => {
-    if (res.writableEnded) {
-      return;
-    }
-
-    abortController.abort();
-    await finalizeTurn(499);
-  });
+  }
 }
 
 export async function startProxyServer(options = {}) {
@@ -357,8 +540,10 @@ export async function startProxyServer(options = {}) {
         headers: sanitizeHeadersForLog(req.headers),
       });
 
+      const status = error.proxyStatus ?? 500;
+
       if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json' });
+        res.writeHead(status, { 'content-type': 'application/json' });
       }
 
       if (!res.writableEnded) {
@@ -438,4 +623,3 @@ export async function startProxyServer(options = {}) {
 }
 
 export { DEFAULT_CONFIG };
-

@@ -41,8 +41,16 @@ function mergeUsage(target, usage) {
     target.input_tokens = toNumber(usage.input_tokens);
   }
 
+  if ('prompt_tokens' in usage) {
+    target.input_tokens = toNumber(usage.prompt_tokens);
+  }
+
   if ('output_tokens' in usage) {
     target.output_tokens = toNumber(usage.output_tokens);
+  }
+
+  if ('completion_tokens' in usage) {
+    target.output_tokens = toNumber(usage.completion_tokens);
   }
 
   if ('cache_read_input_tokens' in usage) {
@@ -169,6 +177,18 @@ export class TurnMetricsCollector {
     const contentType = String(headerValue(headers, 'content-type') ?? '').toLowerCase();
     const contentEncoding = String(headerValue(headers, 'content-encoding') ?? '').toLowerCase();
     this.isSse = contentType.includes('text/event-stream') && !contentEncoding.includes('gzip');
+  }
+
+  setRoutedTo(routedTo) {
+    if (!routedTo) {
+      return;
+    }
+
+    this.record.routed_to = routedTo;
+  }
+
+  addUsage(usage) {
+    mergeUsage(this.record, usage);
   }
 
   observeChunk(chunk) {
@@ -347,4 +367,3 @@ export class MetricsLogger {
     };
   }
 }
-

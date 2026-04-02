@@ -1,11 +1,11 @@
 {
   "version": 1,
   "active": false,
-  "skill": "ultrawork",
-  "keyword": "parallel",
+  "skill": "cancel",
+  "keyword": "stop",
   "phase": "completing",
-  "activated_at": "2026-04-02T08:10:48.674Z",
-  "updated_at": "2026-04-02T08:10:48.732Z",
+  "activated_at": "2026-04-02T09:01:13.159Z",
+  "updated_at": "2026-04-02T09:01:13.239Z",
   "source": "keyword-detector",
   "input_lock": null
 }
