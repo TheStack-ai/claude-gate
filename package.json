@@ -1,0 +1,19 @@
+{
+  "name": "claude-proxy",
+  "version": "0.1.0",
+  "description": "Local observability proxy for Claude Code API traffic with Codex shadow evaluation",
+  "type": "module",
+  "bin": {
+    "claude-proxy": "./bin/claude-proxy"
+  },
+  "scripts": {
+    "start": "node bin/claude-proxy start",
+    "test": "node --test test/"
+  },
+  "keywords": ["claude", "proxy", "observability", "llm"],
+  "author": "DD",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
