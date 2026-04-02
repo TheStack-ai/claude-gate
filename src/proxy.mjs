@@ -533,7 +533,7 @@ export async function startProxyServer(options = {}) {
     }
 
     try {
-      await proxyRequest({ req, res, config, logger, classifier, log, shadow });
+      await proxyRequest({ req, res, config, logger, classifier, log, shadow, openAIRequestImpl: options.openAIRequestImpl ?? null });
     } catch (error) {
       log.error?.('[claude-proxy] request handling failed', {
         error: error.message,

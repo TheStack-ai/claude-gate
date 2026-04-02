@@ -38,99 +38,43 @@ test('isEnabled returns false when shadow.enabled is false', () => {
   assert.equal(evaluator.isEnabled(), false);
 });
 
-test('isEnabled returns false when OPENAI_API_KEY is not set', () => {
-  const origKey = process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_API_KEY;
-
-  try {
-    const evaluator = createShadowEvaluator({
-      config: { shadow: { enabled: true }, openai: { api_key_env: 'OPENAI_API_KEY' } },
-    });
-    assert.equal(evaluator.isEnabled(), false);
-  } finally {
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    }
-  }
-});
-
-test('isEnabled returns true when shadow enabled and API key present', () => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
-
-  try {
-    const evaluator = createShadowEvaluator({
-      config: { shadow: { enabled: true }, openai: { api_key_env: 'OPENAI_API_KEY' } },
-    });
-    assert.equal(evaluator.isEnabled(), true);
-  } finally {
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
-  }
+test('isEnabled returns true when shadow.enabled is true (uses Codex CLI, no API key needed)', () => {
+  const evaluator = createShadowEvaluator({
+    config: { shadow: { enabled: true }, openai: {} },
+  });
+  assert.equal(evaluator.isEnabled(), true);
 });
 
 test('maybeStart returns null when not eligible', () => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
+  const evaluator = createShadowEvaluator({
+    config: { shadow: { enabled: true }, openai: {} },
+    log: silentLog,
+  });
 
-  try {
-    const evaluator = createShadowEvaluator({
-      config: { shadow: { enabled: true }, openai: {} },
-      log: silentLog,
-    });
-
-    const ctx = evaluator.maybeStart(
-      makeClassification({ shadowEligible: false }),
-      makeBody(),
-    );
-    assert.equal(ctx, null);
-  } finally {
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
-  }
+  const ctx = evaluator.maybeStart(
+    makeClassification({ shadowEligible: false }),
+    makeBody(),
+  );
+  assert.equal(ctx, null);
 });
 
 test('maybeStart returns context when eligible', () => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
+  const evaluator = createShadowEvaluator({
+    config: { shadow: { enabled: true }, openai: {} },
+    log: silentLog,
+    fetchCodex: () => Promise.resolve(null),
+  });
 
-  try {
-    const evaluator = createShadowEvaluator({
-      config: { shadow: { enabled: true }, openai: { base_url: 'http://localhost:1' } },
-      log: silentLog,
-      fetchCodex: () => Promise.resolve(null),
-    });
-
-    const ctx = evaluator.maybeStart(makeClassification(), makeBody());
-    assert.notEqual(ctx, null);
-    assert.equal(typeof ctx.observeChunk, 'function');
-    assert.equal(typeof ctx.complete, 'function');
-  } finally {
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
-  }
+  const ctx = evaluator.maybeStart(makeClassification(), makeBody());
+  assert.notEqual(ctx, null);
+  assert.equal(typeof ctx.observeChunk, 'function');
+  assert.equal(typeof ctx.complete, 'function');
 });
 
 test('shadow logs ok result with divergence on tool_choice', async (t) => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'shadow-test-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'shadow.jsonl');
@@ -183,16 +127,9 @@ test('shadow logs ok result with divergence on tool_choice', async (t) => {
 });
 
 test('shadow logs ok result with content divergence', async (t) => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'shadow-test-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'shadow.jsonl');
@@ -228,16 +165,9 @@ test('shadow logs ok result with content divergence', async (t) => {
 });
 
 test('shadow logs error when codex returns null', async (t) => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'shadow-test-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'shadow.jsonl');
@@ -260,16 +190,9 @@ test('shadow logs error when codex returns null', async (t) => {
 });
 
 test('shadow logs error when codex returns API error', async (t) => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'shadow-test-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'shadow.jsonl');
@@ -292,16 +215,9 @@ test('shadow logs error when codex returns API error', async (t) => {
 });
 
 test('shadow with no divergence logs min_similarity 1', async (t) => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'shadow-test-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'shadow.jsonl');
@@ -330,16 +246,9 @@ test('shadow with no divergence logs min_similarity 1', async (t) => {
 });
 
 test('shadow integration: does not delay proxy response', async (t) => {
-  const origKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'shadow-int-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (origKey !== undefined) {
-      process.env.OPENAI_API_KEY = origKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const { startProxyServer } = await import('../src/proxy.mjs');

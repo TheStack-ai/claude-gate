@@ -1,16 +1,11 @@
-import https from 'node:https';
-import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { convertAnthropicToOpenAI } from './format.mjs';
+import { callCodexCli, isCodexAvailable } from './codex-bridge.mjs';
 
 const DEFAULT_SHADOW_LOG_PATH = path.join(os.homedir(), '.claude-proxy', 'logs', 'shadow.jsonl');
-
-function selectTransport(url) {
-  return url.protocol === 'https:' ? https : http;
-}
 
 function jaccardSimilarity(a, b) {
   if (!a && !b) return 1;
@@ -26,41 +21,17 @@ function jaccardSimilarity(a, b) {
   return intersection / new Set([...wordsA, ...wordsB]).size;
 }
 
-function fetchCodexResponse(openaiBody, config) {
-  const envName = config?.openai?.api_key_env ?? 'OPENAI_API_KEY';
-  const apiKey = process.env[envName];
-  if (!apiKey) return Promise.resolve(null);
-
-  const baseUrl = config?.openai?.base_url ?? 'https://api.openai.com/v1';
-  const url = new URL(`${baseUrl}/chat/completions`);
-  const bodyStr = JSON.stringify(openaiBody);
-  const transport = selectTransport(url);
-
-  return new Promise(resolve => {
-    const req = transport.request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': Buffer.byteLength(bodyStr),
-      },
-      timeout: 60_000,
-    }, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-        } catch {
-          resolve(null);
-        }
-      });
-      res.on('error', () => resolve(null));
+async function fetchCodexResponse(openaiBody, config) {
+  const model = config?.openai?.default_model ?? 'gpt-5.4';
+  try {
+    return await callCodexCli({
+      messages: openaiBody.messages || [],
+      tools: openaiBody.tools || [],
+      model,
     });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.end(bodyStr);
-  });
+  } catch {
+    return null;
+  }
 }
 
 function compareDivergence(anthropicMeta, codexResponse) {
@@ -252,8 +223,13 @@ export class ShadowEvaluator {
 
   isEnabled() {
     if (!this.config.shadow?.enabled) return false;
-    const envName = this.config.openai?.api_key_env ?? 'OPENAI_API_KEY';
-    return !!process.env[envName];
+    return true;
+  }
+
+  async checkCodexAvailable() {
+    if (this._codexAvailable !== undefined) return this._codexAvailable;
+    this._codexAvailable = await isCodexAvailable();
+    return this._codexAvailable;
   }
 
   maybeStart(classification, bodyBuffer) {

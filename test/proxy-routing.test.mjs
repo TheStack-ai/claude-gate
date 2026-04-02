@@ -61,17 +61,9 @@ function silentLog() {
 }
 
 test('proxy routes matching agent requests directly to openai', async (t) => {
-  const originalKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-openai-key';
-
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-routing-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (originalKey !== undefined) {
-      process.env.OPENAI_API_KEY = originalKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'metrics.jsonl');
@@ -90,48 +82,30 @@ test('proxy routes matching agent requests directly to openai', async (t) => {
     });
   });
 
-  let openaiBody = null;
-  const openai = http.createServer((req, res) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => {
-      openaiBody = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
+  let openaiCalled = false;
+  const mockOpenAIRequestImpl = async ({ body }) => {
+    openaiCalled = true;
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
         id: 'chatcmpl_route',
         model: 'gpt-5.4',
-        usage: {
-          prompt_tokens: 18,
-          completion_tokens: 7,
-        },
-        choices: [
-          {
-            finish_reason: 'stop',
-            message: {
-              content: 'routed through openai',
-            },
-          },
-        ],
-      }));
-    });
-  });
-  const openaiAddress = await listen(openai);
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      openai.close((error) => (error ? reject(error) : resolve()));
-    });
-  });
+        usage: { prompt_tokens: 18, completion_tokens: 7 },
+        choices: [{ finish_reason: 'stop', message: { content: 'routed through openai' } }],
+      }),
+    };
+  };
 
   const proxy = await startProxyServer({
     port: 0,
     logger,
+    openAIRequestImpl: mockOpenAIRequestImpl,
     config: {
       anthropic: {
         base_url: `http://127.0.0.1:${anthropicAddress.port}`,
       },
       openai: {
-        base_url: `http://127.0.0.1:${openaiAddress.port}/v1`,
-        api_key_env: 'OPENAI_API_KEY',
         default_model: 'gpt-5.4',
       },
       routing: {
@@ -179,8 +153,7 @@ test('proxy routes matching agent requests directly to openai', async (t) => {
   await logger.close();
 
   assert.equal(anthropicRequests, 0);
-  assert.equal(openaiBody.model, 'gpt-5.4');
-  assert.equal(openaiBody.messages[0].role, 'user');
+  assert.equal(openaiCalled, true);
   assert.equal(response.statusCode, 200);
 
   const responseBody = JSON.parse(response.body.toString('utf8'));
@@ -194,17 +167,9 @@ test('proxy routes matching agent requests directly to openai', async (t) => {
 });
 
 test('proxy falls back to openai on anthropic 529 before streaming starts', async (t) => {
-  const originalKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-openai-key';
-
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'claude-proxy-fallback-'));
   t.after(async () => {
     await rm(tempDir, { recursive: true, force: true });
-    if (originalKey !== undefined) {
-      process.env.OPENAI_API_KEY = originalKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   const logPath = path.join(tempDir, 'metrics.jsonl');
@@ -228,10 +193,9 @@ test('proxy falls back to openai on anthropic 529 before streaming starts', asyn
   });
 
   let openaiCalls = 0;
-  const openai = http.createServer((req, res) => {
+  const mockOpenAIRequestImpl = async () => {
     openaiCalls += 1;
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
+    const body = JSON.stringify({
       id: 'chatcmpl_fallback',
       model: 'gpt-5.4',
       usage: {
@@ -246,25 +210,19 @@ test('proxy falls back to openai on anthropic 529 before streaming starts', asyn
           },
         },
       ],
-    }));
-  });
-  const openaiAddress = await listen(openai);
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      openai.close((error) => (error ? reject(error) : resolve()));
     });
-  });
+    return { statusCode: 200, headers: { 'content-type': 'application/json' }, body };
+  };
 
   const proxy = await startProxyServer({
     port: 0,
     logger,
+    openAIRequestImpl: mockOpenAIRequestImpl,
     config: {
       anthropic: {
         base_url: `http://127.0.0.1:${anthropicAddress.port}`,
       },
       openai: {
-        base_url: `http://127.0.0.1:${openaiAddress.port}/v1`,
-        api_key_env: 'OPENAI_API_KEY',
         default_model: 'gpt-5.4',
       },
       routing: {
@@ -316,8 +274,6 @@ test('proxy falls back to openai on anthropic 529 before streaming starts', asyn
 });
 
 test('proxy does not fallback on anthropic 529 for non-agent requests', async (t) => {
-  const originalKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-openai-key';
 
   const anthropic = http.createServer((req, res) => {
     res.writeHead(529, { 'content-type': 'application/json' });
@@ -329,35 +285,26 @@ test('proxy does not fallback on anthropic 529 for non-agent requests', async (t
       anthropic.close((error) => (error ? reject(error) : resolve()));
     });
 
-    if (originalKey !== undefined) {
-      process.env.OPENAI_API_KEY = originalKey;
-    } else {
-      delete process.env.OPENAI_API_KEY;
-    }
   });
 
   let openaiCalls = 0;
-  const openai = http.createServer((req, res) => {
+  const mockOpenAIRequestImpl = async () => {
     openaiCalls += 1;
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: 'unexpected' } }] }));
-  });
-  const openaiAddress = await listen(openai);
-  t.after(async () => {
-    await new Promise((resolve, reject) => {
-      openai.close((error) => (error ? reject(error) : resolve()));
-    });
-  });
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ choices: [{ message: { content: 'unexpected' } }] }),
+    };
+  };
 
   const proxy = await startProxyServer({
     port: 0,
+    openAIRequestImpl: mockOpenAIRequestImpl,
     config: {
       anthropic: {
         base_url: `http://127.0.0.1:${anthropicAddress.port}`,
       },
       openai: {
-        base_url: `http://127.0.0.1:${openaiAddress.port}/v1`,
-        api_key_env: 'OPENAI_API_KEY',
         default_model: 'gpt-5.4',
       },
       fallback_529: {

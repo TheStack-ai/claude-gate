@@ -1,13 +1,7 @@
-import http from 'node:http';
-import https from 'node:https';
-
 import { convertAnthropicToOpenAI } from './format.mjs';
+import { callCodexCli } from './codex-bridge.mjs';
 
 const DEFAULT_OPENAI_MODEL = 'gpt-5.4';
-
-function selectTransport(url) {
-  return url.protocol === 'https:' ? https : http;
-}
 
 function normalizeTextContent(content) {
   if (typeof content === 'string') {
@@ -198,78 +192,57 @@ export async function requestOpenAIChatCompletion({
   config = {},
   model,
   requestImpl = null,
+  codexFn = null,
   timeoutMs = 60_000,
 } = {}) {
-  const envName = config?.openai?.api_key_env ?? 'OPENAI_API_KEY';
-  const apiKey = process.env[envName];
-
-  if (!apiKey) {
-    const error = new Error(`missing_api_key:${envName}`);
-    error.code = 'MISSING_OPENAI_API_KEY';
-    throw error;
-  }
-
   const { anthropicBody, openaiBody } = buildOpenAIRequestBody(bodyBuffer, config, model);
-  const baseUrl = config?.openai?.base_url ?? 'https://api.openai.com/v1';
-  const url = new URL(`${baseUrl}/chat/completions`);
-  const requestBody = JSON.stringify(openaiBody);
-
-  const requestHeaders = {
-    'content-type': 'application/json',
-    authorization: `Bearer ${apiKey}`,
-    'content-length': Buffer.byteLength(requestBody),
-  };
-
-  let statusCode;
-  let headers;
-  let body;
 
   if (typeof requestImpl === 'function') {
     const response = await requestImpl({
-      url,
+      url: null,
       method: 'POST',
-      headers: requestHeaders,
-      body: requestBody,
+      headers: {},
+      body: JSON.stringify(openaiBody),
       timeoutMs,
     });
 
-    statusCode = response?.statusCode ?? 502;
-    headers = response?.headers ?? {};
-    body = normalizeResponseBody(response?.body);
-  } else {
-    const transport = selectTransport(url);
-    const response = await new Promise((resolve, reject) => {
-      const upstreamRequest = transport.request(
-        url,
-        {
-          method: 'POST',
-          headers: requestHeaders,
-          timeout: timeoutMs,
-        },
-        (upstreamResponse) => {
-          resolve(upstreamResponse);
-        },
-      );
+    const statusCode = response?.statusCode ?? 502;
+    const headers = response?.headers ?? {};
+    const body = normalizeResponseBody(response?.body);
 
-      upstreamRequest.on('error', reject);
-      upstreamRequest.on('timeout', () => {
-        upstreamRequest.destroy(new Error('openai_request_timeout'));
-      });
-      upstreamRequest.end(requestBody);
-    });
-
-    statusCode = response.statusCode ?? 502;
-    headers = response.headers;
-    body = await readResponseBody(response);
+    return {
+      anthropicBody,
+      openaiRequestBody: openaiBody,
+      statusCode,
+      headers,
+      body,
+      json: parseResponseJson(body),
+    };
   }
+
+  const callFn = codexFn || callCodexCli;
+  const json = await callFn({
+    messages: openaiBody.messages || [],
+    tools: openaiBody.tools || [],
+    model: model || config?.openai?.default_model || 'gpt-5.4',
+    timeoutMs,
+  });
+
+  if (json.error) {
+    const error = new Error(`codex_cli_error: ${json.error.message}`);
+    error.code = 'CODEX_CLI_ERROR';
+    throw error;
+  }
+
+  const body = Buffer.from(JSON.stringify(json));
 
   return {
     anthropicBody,
     openaiRequestBody: openaiBody,
-    statusCode,
-    headers,
+    statusCode: 200,
+    headers: { 'content-type': 'application/json' },
     body,
-    json: parseResponseJson(body),
+    json,
   };
 }
 
