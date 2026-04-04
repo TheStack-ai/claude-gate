@@ -106,6 +106,6 @@ This is NOT an official Anthropic product. cc-mux is an independent open-source 
 
 ## License
 
-Apache-2.0
+MIT
 
 Author: DD (whynowlab)
