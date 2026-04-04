@@ -1,19 +1,19 @@
-# claude-gate
+# cc-gate
 
 Local gateway for Claude Code — automatically route tool-continuation turns to Codex, saving your Claude quota without changing your experience.
 
 ## Quick Start
 
 ```bash
-npm install -g claude-gate
-claude-gate init        # detect Codex CLI, create config
-claude-gate run         # start gateway + Claude Code
+npm install -g cc-gate
+cc-gate init        # detect Codex CLI, create config
+cc-gate run         # start gateway + Claude Code
 ```
 
 ## How It Works
 
 ```text
-You → Claude Code → claude-gate
+You → Claude Code → cc-gate
                         │
             ┌───────────┼───────────┐
             │                       │
@@ -25,7 +25,7 @@ You → Claude Code → claude-gate
        (Claude)               (GPT-5.4)
 ```
 
-When Claude reads a file and decides to read another file, that second call is a **tool continuation** — the last message is a `tool_result`, and the model just needs to pick the next tool. These mechanical loops make up 50-80% of API calls. claude-gate routes them to Codex automatically.
+When Claude reads a file and decides to read another file, that second call is a **tool continuation** — the last message is a `tool_result`, and the model just needs to pick the next tool. These mechanical loops make up 50-80% of API calls. cc-gate routes them to Codex automatically.
 
 - **User-initiated turns** → always Claude (thinking, reasoning, judgment)
 - **Tool-continuation turns** → Codex (file reads, greps, edits in a chain)
@@ -35,13 +35,13 @@ When Claude reads a file and decides to read another file, that second call is a
 
 | Command | Description |
 |---------|-------------|
-| `claude-gate init` | Create config at `~/.claude-gate/config.json` |
-| `claude-gate run` | Start gateway + launch Claude Code |
-| `claude-gate start` | Start gateway only |
-| `claude-gate stop` | Stop running gateway |
-| `claude-gate dashboard` | Live terminal dashboard |
-| `claude-gate stats` | Session metrics |
-| `claude-gate advise` | Optimization recommendations |
+| `cc-gate init` | Create config at `~/.cc-gate/config.json` |
+| `cc-gate run` | Start gateway + launch Claude Code |
+| `cc-gate start` | Start gateway only |
+| `cc-gate stop` | Stop running gateway |
+| `cc-gate dashboard` | Live terminal dashboard |
+| `cc-gate stats` | Session metrics |
+| `cc-gate advise` | Optimization recommendations |
 
 Options: `--port 8080` `--config <path>` `--lang en|ko` `--fresh`
 
@@ -55,12 +55,12 @@ The live dashboard shows Claude vs Codex routing in real time:
 - Recent API calls with routing indicator
 
 ```bash
-claude-gate dashboard --lang ko
+cc-gate dashboard --lang ko
 ```
 
 ## Configuration
 
-`claude-gate init` auto-detects Codex CLI and generates optimal defaults.
+`cc-gate init` auto-detects Codex CLI and generates optimal defaults.
 
 ```json
 {
@@ -102,7 +102,7 @@ claude-gate dashboard --lang ko
 
 ## Disclaimer
 
-This is NOT an official Anthropic product. claude-gate is an independent open-source tool that observes API traffic to provide routing and analytics.
+This is NOT an official Anthropic product. cc-gate is an independent open-source tool that observes API traffic to provide routing and analytics.
 
 ## License
 

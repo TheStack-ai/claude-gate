@@ -1,10 +1,10 @@
 {
-  "name": "claude-gate",
+  "name": "cc-gate",
   "version": "1.0.0",
   "description": "Local observability gateway for Claude Code — monitor, route, and optimize API traffic",
   "type": "module",
   "bin": {
-    "claude-gate": "./bin/claude-gate"
+    "cc-gate": "./bin/cc-gate"
   },
   "files": [
     "bin/",
@@ -13,7 +13,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node bin/claude-gate start",
+    "start": "node bin/cc-gate start",
     "test": "node --test 'test/*.test.mjs'"
   },
   "keywords": [

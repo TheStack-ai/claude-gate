@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 import { spawn, execSync } from 'node:child_process';
 import net from 'node:net';
 
-const DATA_DIR = path.join(os.homedir(), '.claude-gate');
+const DATA_DIR = path.join(os.homedir(), '.cc-gate');
 const PID_FILE = path.join(DATA_DIR, 'proxy.pid');
 const DEFAULT_LOG_PATH = path.join(DATA_DIR, 'logs', 'metrics.jsonl');
 const USER_CONFIG_PATH = path.join(DATA_DIR, 'config.json');
@@ -26,7 +26,7 @@ function hasFlag(name) {
   return args.includes(name);
 }
 
-// ── Config resolution: --config > ~/.claude-gate/config.json > defaults ──
+// ── Config resolution: --config > ~/.cc-gate/config.json > defaults ──
 
 function resolveConfigPath(explicit) {
   if (explicit) return explicit;
@@ -92,8 +92,8 @@ async function commandStart() {
   if (await isPortInUse(port, host)) {
     const existingPid = await readPidFile();
     if (existingPid) {
-      console.error(`Port ${port} is in use (existing claude-gate PID: ${existingPid}).`);
-      console.error(`Run "claude-gate stop" first, or use --port <other>.`);
+      console.error(`Port ${port} is in use (existing cc-gate PID: ${existingPid}).`);
+      console.error(`Run "cc-gate stop" first, or use --port <other>.`);
     } else {
       console.error(`Port ${port} is already in use by another process.`);
       console.error(`Use --port <other> to pick a different port.`);
@@ -112,7 +112,7 @@ async function commandStart() {
   const shadowStatus = proxy.config.shadow?.enabled ? 'enabled' : 'disabled';
   const routingStatus = proxy.config.routing?.enabled ? 'enabled' : 'disabled';
 
-  console.log(`claude-gate started`);
+  console.log(`cc-gate started`);
   console.log(`  Listen:   http://${proxy.host}:${proxy.port}`);
   console.log(`  Config:   ${configPath || '(defaults)'}`);
   console.log(`  Shadow:   ${shadowStatus}`);
@@ -136,7 +136,7 @@ async function commandRun() {
   const configPath = resolveConfigPath(explicitConfig);
 
   if (await isPortInUse(port, host)) {
-    console.error(`Port ${port} is already in use. Run "claude-gate stop" first or use --port <other>.`);
+    console.error(`Port ${port} is already in use. Run "cc-gate stop" first or use --port <other>.`);
     process.exit(1);
   }
 
@@ -148,7 +148,7 @@ async function commandRun() {
   await writePidFile(process.pid);
 
   const baseUrl = `http://${proxy.host}:${proxy.port}`;
-  console.log(`claude-gate proxy running on ${baseUrl}`);
+  console.log(`cc-gate proxy running on ${baseUrl}`);
   console.log(`Launching Claude Code...\n`);
 
   const claude = spawn('claude', [], {
@@ -230,7 +230,7 @@ async function commandInit() {
   console.log(`  Shadow eval: ${hasCodex ? 'enabled (Codex CLI detected)' : 'disabled (install Codex CLI to enable)'}`);
   console.log(`  Routing:     ${hasCodex ? 'enabled (tool continuations → Codex)' : 'disabled (install Codex CLI to enable)'}`);
   console.log(`  529 fallback: ${hasCodex ? 'enabled' : 'disabled (install Codex CLI to enable)'}`);
-  console.log(`\nStart with:\n  claude-gate run`);
+  console.log(`\nStart with:\n  cc-gate run`);
 }
 
 async function commandStats() {
@@ -355,19 +355,19 @@ function printUsage() {
   const R = '\x1b[0m';
 
   console.log(`
-${B}claude-gate${R} ${D}— Local observability gateway for Claude Code${R}
+${B}cc-gate${R} ${D}— Local observability gateway for Claude Code${R}
 
 ${C}Quick Start:${R}
-  ${B}claude-gate run${R}              ${D}Start proxy + Claude Code in one command${R}
+  ${B}cc-gate run${R}              ${D}Start proxy + Claude Code in one command${R}
 
 ${C}Commands:${R}
-  ${B}claude-gate init${R}             ${D}Create config at ~/.claude-gate/config.json${R}
-  ${B}claude-gate start${R}            ${D}Start proxy server (background use)${R}
-  ${B}claude-gate run${R}              ${D}Start proxy + launch Claude Code${R}
-  ${B}claude-gate stop${R}             ${D}Stop running proxy${R}
-  ${B}claude-gate dashboard${R}        ${D}Live metrics dashboard${R}
-  ${B}claude-gate stats${R}            ${D}Session statistics${R}
-  ${B}claude-gate advise${R}           ${D}Configuration recommendations${R}
+  ${B}cc-gate init${R}             ${D}Create config at ~/.cc-gate/config.json${R}
+  ${B}cc-gate start${R}            ${D}Start proxy server (background use)${R}
+  ${B}cc-gate run${R}              ${D}Start proxy + launch Claude Code${R}
+  ${B}cc-gate stop${R}             ${D}Stop running proxy${R}
+  ${B}cc-gate dashboard${R}        ${D}Live metrics dashboard${R}
+  ${B}cc-gate stats${R}            ${D}Session statistics${R}
+  ${B}cc-gate advise${R}           ${D}Configuration recommendations${R}
 
 ${C}Options:${R}
   --port <n>       ${D}Proxy port (default: 8080)${R}

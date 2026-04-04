@@ -1,11 +1,13 @@
 {
   "version": 1,
   "active": true,
-  "skill": "cancel",
-  "keyword": "stop",
-  "phase": "reviewing",
-  "activated_at": "2026-04-02T09:01:13.159Z",
-  "updated_at": "2026-04-02T15:07:03.129Z",
+  "skill": "ultrawork",
+  "keyword": "parallel",
+  "phase": "planning",
+  "activated_at": "2026-04-02T17:33:40.104Z",
+  "updated_at": "2026-04-02T18:01:41.110Z",
   "source": "keyword-detector",
-  "input_lock": null
+  "input_lock": null,
+  "iteration": 2,
+  "last_turn_at": "2026-04-04T05:16:20.422Z"
 }

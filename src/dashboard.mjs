@@ -50,7 +50,7 @@ const OPUS_PRICING = Object.freeze({ input: 15, output: 75 });
 const TRANSLATIONS = {
   en: {
     locale: 'en-GB',
-    title: 'Claude Gate',
+    title: 'CC Gate',
     sections: {
       live: 'Live',
       routing: 'Routing',
@@ -73,7 +73,7 @@ const TRANSLATIONS = {
   },
   ko: {
     locale: 'ko-KR',
-    title: 'Claude Gate',
+    title: 'CC Gate',
     sections: {
       live: '실시간',
       routing: '라우팅',
