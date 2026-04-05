@@ -57,17 +57,22 @@ const TRANSLATIONS = {
       session: 'Session',
     },
     status: {
-      running: (elapsed) => `${elapsed} running`,
+      running: (elapsed, startTime) => `${elapsed} running  started ${startTime}`,
       waiting: 'Waiting for API calls...',
       claudeReqs: 'Claude',
       codexReqs: 'Codex',
+      routingRatio: 'Codex ratio',
       codexTokens: 'Codex handled',
       savings: 'Saved',
       fallback529: '529 recovered',
       apiCalls: 'API calls',
+      totalTokens: 'Total tokens',
       avgLatency: 'Avg latency',
+      claudeAvgLatency: 'Claude avg',
+      codexAvgLatency: 'Codex avg',
       claudeCost: 'Claude cost',
       retries: 'Retries',
+      savingsNote: 'vs Opus pricing',
       dashboardStopped: 'Dashboard stopped.',
       keyHints: 'q quit  r refresh  Ctrl+C exit',
     },
@@ -81,17 +86,22 @@ const TRANSLATIONS = {
       session: '세션',
     },
     status: {
-      running: (elapsed) => `${elapsed}째 실행 중`,
+      running: (elapsed, startTime) => `${elapsed}째 실행 중  시작 ${startTime}`,
       waiting: 'API 호출 대기 중...',
       claudeReqs: 'Claude',
       codexReqs: 'Codex',
+      routingRatio: 'Codex 비율',
       codexTokens: 'Codex 처리',
       savings: '절감액',
       fallback529: '529 복구',
       apiCalls: 'API 호출',
+      totalTokens: '총 토큰',
       avgLatency: '평균 응답',
+      claudeAvgLatency: 'Claude 평균',
+      codexAvgLatency: 'Codex 평균',
       claudeCost: 'Claude 비용',
       retries: '재시도',
+      savingsNote: 'Opus 단가 기준',
       dashboardStopped: 'dashboard 종료.',
       keyHints: 'q 종료  r 새로고침  Ctrl+C 종료',
     },
@@ -236,6 +246,8 @@ export function createSessionState(options = {}) {
     codexInputTokens: 0,
     codexOutputTokens: 0,
     totalLatencyMs: 0,
+    claudeLatencyMs: 0,
+    codexLatencyMs: 0,
     claudeCost: 0,
     codexSavings: 0,
     recentEvents: [],
@@ -267,9 +279,11 @@ export function ingestRecord(state, record) {
     state.codexInputTokens += inputTokens;
     state.codexOutputTokens += outputTokens;
     state.codexSavings += opusCost;
+    state.codexLatencyMs += latencyMs;
   } else {
     state.claudeCount += 1;
     state.claudeCost += opusCost;
+    state.claudeLatencyMs += latencyMs;
     if (status === 529) state.fallback529Count += 1;
   }
 
@@ -314,27 +328,30 @@ function renderFrame(state, cols, keyboardEnabled) {
   const lines = [];
 
   const codexRatio = state.apiCalls > 0 ? state.codexCount / state.apiCalls : 0;
-  const avgLatency = state.apiCalls > 0 ? state.totalLatencyMs / state.apiCalls : 0;
+  const claudeAvgLatency = state.claudeCount > 0 ? state.claudeLatencyMs / state.claudeCount : 0;
+  const codexAvgLatency = state.codexCount > 0 ? state.codexLatencyMs / state.codexCount : 0;
+  const totalTokens = state.totalInputTokens + state.totalOutputTokens;
+  const startTimeStr = new Date(state.startedAt).toLocaleTimeString(t.locale, { hour12: false, hour: '2-digit', minute: '2-digit' });
 
   // Header
   lines.push(`${CYAN}╭${'─'.repeat(w)}╮${RESET}`);
   lines.push(`${CYAN}│${RESET}${BOLD}${pad(`  ${t.title}`, w)}${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}${DIM}${pad(`  ${t.status.running(elapsedStr(Date.now() - state.startedAt, state.lang))}`, w)}${RESET}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${DIM}${pad(`  ${t.status.running(elapsedStr(Date.now() - state.startedAt, state.lang), startTimeStr)}`, w)}${RESET}${CYAN}│${RESET}`);
   lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
 
-  // Routing section (the star of the show)
+  // Routing section
   lines.push(`${CYAN}│${RESET}${pad(`  ${BOLD}${t.sections.routing}${RESET}`, w)}${CYAN}│${RESET}`);
   lines.push(`${CYAN}│${RESET}  ${hr}  ${CYAN}│${RESET}`);
 
-  const claudeBar = state.claudeCount > 0 ? `${DIM}${'█'.repeat(Math.max(1, Math.round((1 - codexRatio) * 16)))}${RESET}` : '';
-  const codexBar = state.codexCount > 0 ? `${GREEN}${'█'.repeat(Math.max(1, Math.round(codexRatio * 16)))}${RESET}` : '';
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.claudeReqs, 12)}${fitText(String(state.claudeCount), 6)}${claudeBar}`, w)}${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.codexReqs, 12)}${GREEN}${fitText(String(state.codexCount), 6)}${RESET}${codexBar}`, w)}${CYAN}│${RESET}`);
-
-  const codexTokensTotal = state.codexInputTokens + state.codexOutputTokens;
-  const savingsColor = state.codexSavings > 0 ? GREEN : DIM;
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.codexTokens, 16)}${savingsColor}${formatTokens(codexTokensTotal)} tok${RESET}`, w)}${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.savings, 16)}${savingsColor}~${formatCost(state.codexSavings)}${RESET}`, w)}${CYAN}│${RESET}`);
+  // Combined routing bar
+  const barWidth = Math.min(20, w - 30);
+  const codexFill = Math.round(codexRatio * barWidth);
+  const claudeFill = barWidth - codexFill;
+  const routingBar = `${DIM}${'█'.repeat(claudeFill)}${RESET}${GREEN}${'█'.repeat(codexFill)}${RESET}`;
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.claudeReqs, 12)}${fitText(String(state.claudeCount), 6)}`, w)}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.codexReqs, 12)}${GREEN}${fitText(String(state.codexCount), 6)}${RESET}`, w)}${CYAN}│${RESET}`);
+  const ratioColor = codexRatio > 0 ? GREEN : DIM;
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.routingRatio, 12)}${ratioColor}${formatPercent(codexRatio)}${RESET}  ${routingBar}`, w)}${CYAN}│${RESET}`);
 
   if (state.fallback529Count > 0) {
     lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.fallback529, 16)}${YELLOW}${state.fallback529Count}${RESET}`, w)}${CYAN}│${RESET}`);
@@ -342,8 +359,26 @@ function renderFrame(state, cols, keyboardEnabled) {
 
   lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
 
+  // Cost section (merged from routing + session)
+  const savingsColor = state.codexSavings > 0 ? GREEN : DIM;
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.claudeCost, 16)}${formatCost(state.claudeCost)}`, w)}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.savings, 16)}${savingsColor}-${formatCost(state.codexSavings)}${RESET} ${DIM}${t.status.savingsNote}${RESET}`, w)}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.totalTokens, 16)}${formatTokens(totalTokens)} tok`, w)}${CYAN}│${RESET}`);
+
+  // Latency comparison
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.claudeAvgLatency, 16)}${formatSeconds(claudeAvgLatency)}`, w)}${CYAN}│${RESET}`);
+  if (state.codexCount > 0) {
+    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.codexAvgLatency, 16)}${formatSeconds(codexAvgLatency)}`, w)}${CYAN}│${RESET}`);
+  }
+
+  if (state.retryCount > 0) {
+    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.retries, 16)}${YELLOW}${state.retryCount}${RESET}`, w)}${CYAN}│${RESET}`);
+  }
+
+  lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
+
   // Live activity
-  lines.push(`${CYAN}│${RESET}${pad(`  ${BOLD}${t.sections.live}${RESET}`, w)}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${pad(`  ${BOLD}${t.sections.live}${RESET}  ${DIM}${state.apiCalls} calls${RESET}`, w)}${CYAN}│${RESET}`);
   lines.push(`${CYAN}│${RESET}  ${hr}  ${CYAN}│${RESET}`);
 
   if (state.recentEvents.length === 0) {
@@ -353,22 +388,6 @@ function renderFrame(state, cols, keyboardEnabled) {
       const line = `  ${DIM}${evt.time}${RESET} ${evt.routeTag} ${fitText(evt.tokens, 6)} ${fitText(evt.latency, 5)} ${evt.statusIcon}`;
       lines.push(`${CYAN}│${RESET}${pad(line, w)}${CYAN}│${RESET}`);
     }
-  }
-
-  lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
-
-  // Session summary
-  lines.push(`${CYAN}│${RESET}${pad(`  ${BOLD}${t.sections.session}${RESET}`, w)}${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}  ${hr}  ${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.apiCalls, 16)}${state.apiCalls}`, w)}${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.avgLatency, 16)}${formatSeconds(avgLatency)}`, w)}${CYAN}│${RESET}`);
-  const totalCost = state.claudeCost + state.codexSavings;
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.claudeCost, 16)}${formatCost(state.claudeCost)}`, w)}${CYAN}│${RESET}`);
-  if (state.codexSavings > 0) {
-    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.savings, 16)}${GREEN}-${formatCost(state.codexSavings)}${RESET}`, w)}${CYAN}│${RESET}`);
-  }
-  if (state.retryCount > 0) {
-    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.retries, 16)}${YELLOW}${state.retryCount}${RESET}`, w)}${CYAN}│${RESET}`);
   }
 
   // Footer
