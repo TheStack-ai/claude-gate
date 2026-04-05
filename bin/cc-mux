@@ -71,7 +71,17 @@ function isPortInUse(port, host) {
 
 // ── Codex CLI check ──
 
+function isOmxInstalled() {
+  try {
+    execSync('omx version', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isCodexInstalled() {
+  if (isOmxInstalled()) return true;
   try {
     execSync('codex --version', { stdio: 'ignore' });
     return true;
@@ -111,9 +121,11 @@ async function commandStart() {
 
   const shadowStatus = proxy.config.shadow?.enabled ? 'enabled' : 'disabled';
   const routingStatus = proxy.config.routing?.enabled ? 'enabled' : 'disabled';
+  const cliBackend = isOmxInstalled() ? 'omx' : 'codex';
 
   console.log(`cc-mux started`);
   console.log(`  Listen:   http://${proxy.host}:${proxy.port}`);
+  console.log(`  Backend:  ${cliBackend}`);
   console.log(`  Config:   ${configPath || '(defaults)'}`);
   console.log(`  Shadow:   ${shadowStatus}`);
   console.log(`  Routing:  ${routingStatus}`);

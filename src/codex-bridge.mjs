@@ -1,10 +1,23 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 
 const DEFAULT_MODEL = 'gpt-5.4';
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+let _detectedCli = null;
+
+function detectCli() {
+  if (_detectedCli !== null) return _detectedCli;
+  try {
+    execSync('omx version', { stdio: 'ignore', timeout: 3000 });
+    _detectedCli = 'omx';
+  } catch {
+    _detectedCli = 'codex';
+  }
+  return _detectedCli;
+}
+
 /**
- * Call the Codex CLI (codex exec) using the user's Codex Pro subscription.
+ * Call Codex CLI (or omx if available) using the user's Codex Pro subscription.
  * Returns an OpenAI-compatible response shape for compatibility with existing code.
  */
 export async function callCodexCli({
@@ -12,8 +25,9 @@ export async function callCodexCli({
   tools = [],
   model = DEFAULT_MODEL,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-  codexPath = 'codex',
+  codexPath = null,
 } = {}) {
+  if (!codexPath) codexPath = detectCli();
   const prompt = buildPrompt(messages, tools);
 
   const args = [
@@ -250,7 +264,8 @@ function parseCodexOutput({ lines, stderr, exitCode }, model) {
 /**
  * Check if the codex CLI is available and authenticated.
  */
-export async function isCodexAvailable(codexPath = 'codex') {
+export async function isCodexAvailable(codexPath = null) {
+  if (!codexPath) codexPath = detectCli();
   return new Promise((resolve) => {
     const proc = spawn(codexPath, ['login', 'status'], {
       stdio: ['pipe', 'pipe', 'pipe'],
