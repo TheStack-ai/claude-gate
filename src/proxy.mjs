@@ -35,7 +35,7 @@ const DEFAULT_CONFIG = Object.freeze({
     default_model: 'gpt-5.4',
   },
   shadow: {
-    enabled: true,
+    enabled: false,
     target_query_sources: ['agent:custom', 'agent:default', 'compact', 'verification_agent'],
     max_tool_count: 5,
     thinking_enabled: false,

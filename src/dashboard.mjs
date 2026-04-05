@@ -43,7 +43,11 @@ function createAnsi(enabled) {
 const ANSI = createAnsi(shouldUseAnsi());
 const { RESET, BOLD, DIM, GREEN, RED, YELLOW, CYAN, MAGENTA } = ANSI;
 
-const OPUS_PRICING = Object.freeze({ input: 15, output: 75 });
+const MODEL_PRICING = Object.freeze({
+  opus: { input: 15, output: 75 },
+  sonnet: { input: 3, output: 15 },
+  haiku: { input: 0.8, output: 4 },
+});
 
 // ── i18n ──
 
@@ -72,7 +76,7 @@ const TRANSLATIONS = {
       codexAvgLatency: 'Codex avg',
       claudeCost: 'Claude cost',
       retries: 'Retries',
-      savingsNote: 'vs Opus pricing',
+      savingsNote: 'estimated',
       dashboardStopped: 'Dashboard stopped.',
       keyHints: 'q quit  r refresh  Ctrl+C exit',
     },
@@ -101,7 +105,7 @@ const TRANSLATIONS = {
       codexAvgLatency: 'Codex 평균',
       claudeCost: 'Claude 비용',
       retries: '재시도',
-      savingsNote: 'Opus 단가 기준',
+      savingsNote: '모델별 추정',
       dashboardStopped: 'dashboard 종료.',
       keyHints: 'q 종료  r 새로고침  Ctrl+C 종료',
     },
@@ -126,6 +130,14 @@ function toNumber(value) {
 function shortModelName(model) {
   if (typeof model !== 'string' || model.length === 0) return 'unknown';
   return model.replace(/^claude-/, '');
+}
+
+function modelFamily(model) {
+  const short = shortModelName(model).toLowerCase();
+  if (short.includes('opus')) return 'opus';
+  if (short.includes('sonnet')) return 'sonnet';
+  if (short.includes('haiku')) return 'haiku';
+  return 'unknown';
 }
 
 export function translateQuerySource(model) {
@@ -273,16 +285,19 @@ export function ingestRecord(state, record) {
   state.totalLatencyMs += latencyMs;
   if (record.is_retry) state.retryCount += 1;
 
-  const opusCost = (inputTokens / 1_000_000) * OPUS_PRICING.input + (outputTokens / 1_000_000) * OPUS_PRICING.output;
-  if (routedTo === 'openai') {
+  const family = modelFamily(record.model);
+  const pricing = MODEL_PRICING[family] || MODEL_PRICING.opus;
+  const cost = (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output;
+  if (routedTo === 'openai' || routedTo === 'openai_fallback') {
     state.codexCount += 1;
     state.codexInputTokens += inputTokens;
     state.codexOutputTokens += outputTokens;
-    state.codexSavings += opusCost;
+    state.codexSavings += cost;
     state.codexLatencyMs += latencyMs;
+    if (routedTo === 'openai_fallback') state.fallback529Count += 1;
   } else {
     state.claudeCount += 1;
-    state.claudeCost += opusCost;
+    state.claudeCost += cost;
     state.claudeLatencyMs += latencyMs;
     if (status === 529) state.fallback529Count += 1;
   }

@@ -75,7 +75,11 @@ function getLastUserContentBlocks(body) {
 function detectLastMessageIsToolResult(body) {
   const content = getLastUserContentBlocks(body);
   if (!Array.isArray(content) || content.length === 0) return false;
-  return content.every((block) => block?.type === 'tool_result');
+  const allToolResult = content.every((block) => block?.type === 'tool_result');
+  if (!allToolResult) return false;
+  // Don't route if any tool_result has is_error — Claude should handle errors
+  const hasError = content.some((block) => block?.is_error === true);
+  return !hasError;
 }
 
 function detectLastMessageHasMixedToolResult(body) {

@@ -1,7 +1,7 @@
 {
   "name": "cc-mux",
   "version": "1.0.1",
-  "description": "Local observability gateway for Claude Code — monitor, route, and optimize API traffic",
+  "description": "Resilience and observability gateway for Claude Code — 529 recovery, traffic monitoring, optional Codex routing",
   "type": "module",
   "bin": {
     "cc-mux": "./bin/cc-mux"

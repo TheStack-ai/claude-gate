@@ -106,7 +106,8 @@ function convertMessages(messages, system) {
               .map(b => b.text)
               .join('\n');
           }
-          result.push({ role: 'tool', tool_call_id: tr.tool_use_id, content });
+          const toolContent = tr.is_error ? `[ERROR] ${content}` : content;
+          result.push({ role: 'tool', tool_call_id: tr.tool_use_id, content: toolContent });
         }
 
         if (textParts.length === 0 && toolResults.length === 0) {

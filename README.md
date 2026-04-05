@@ -1,6 +1,6 @@
 # cc-mux
 
-Local gateway for Claude Code — automatically route tool-continuation turns to Codex, saving your Claude quota without changing your experience.
+Resilience and observability gateway for Claude Code — recover from 529 overloads, monitor API traffic, and optionally route tool-continuation turns to Codex.
 
 ## Quick Start
 
@@ -10,26 +10,37 @@ cc-mux init        # detect Codex CLI, create config
 cc-mux run         # start gateway + Claude Code
 ```
 
-## How It Works
+## What It Does
+
+**Out of the box (no Codex needed):**
+- Monitor all Claude Code API traffic in real time
+- Live dashboard with token usage, latency, cost estimates
+- Session analytics and optimization recommendations
+
+**With Codex CLI installed:**
+- 529 overload recovery — when Claude is overloaded, Codex handles the request
+- Tool-continuation routing (opt-in) — route mechanical tool-chaining turns to Codex
+
+## How Routing Works
 
 ```text
 You → Claude Code → cc-mux
-                        │
-            ┌───────────┼───────────┐
-            │                       │
-    User messages              Tool continuations
-    (thinking, planning)       (Read, Grep, Edit chains)
-            │                       │
-            ▼                       ▼
-      Anthropic API            Codex CLI
-       (Claude)               (GPT-5.4)
+                       │
+           ┌───────────┼───────────┐
+           │                       │
+   User messages              Tool continuations
+   (thinking, planning)       (Read, Grep, Edit chains)
+           │                       │
+           ▼                       ▼
+     Anthropic API            Codex CLI
+      (Claude)               (GPT-5.4)
 ```
 
-When Claude reads a file and decides to read another file, that second call is a **tool continuation** — the last message is a `tool_result`, and the model just needs to pick the next tool. These mechanical loops make up 50-80% of API calls. cc-mux routes them to Codex automatically.
+When Claude reads a file and decides to read another, that second call is a **tool continuation**. cc-mux can route these to Codex. This is **opt-in** — disabled by default.
 
-- **User-initiated turns** → always Claude (thinking, reasoning, judgment)
-- **Tool-continuation turns** → Codex (file reads, greps, edits in a chain)
-- **529 overload** → Codex fallback for any request
+- Error tool results are never routed (Claude handles failures)
+- User-initiated turns always go to Claude
+- 529 fallback works for any request type
 
 ## Commands
 
@@ -45,22 +56,9 @@ When Claude reads a file and decides to read another file, that second call is a
 
 Options: `--port 8080` `--config <path>` `--lang en|ko` `--fresh`
 
-## Dashboard
-
-The live dashboard shows Claude vs Codex routing in real time:
-
-- Routing split (Claude/Codex request counts and ratio)
-- Estimated savings (what Codex-handled turns would have cost on Claude)
-- 529 recovery count
-- Recent API calls with routing indicator
-
-```bash
-cc-mux dashboard --lang ko
-```
-
 ## Configuration
 
-`cc-mux init` auto-detects Codex CLI and generates optimal defaults.
+`cc-mux init` generates a config. To enable Codex routing, edit `~/.cc-mux/config.json`:
 
 ```json
 {
@@ -85,24 +83,22 @@ cc-mux dashboard --lang ko
 }
 ```
 
-### Routing conditions
+### Trade-offs
 
-| Condition | Description |
-|-----------|-------------|
-| `last_message_tool_result` | Last message contains tool_result blocks |
-| `thinking_enabled` | Extended thinking is active |
-| `tool_count_max` | Maximum number of tools in request |
-| `query_source` | Request type filter (if available) |
+- Codex routing reduces Claude API usage but adds latency (Codex CLI is slower)
+- 529 fallback has no quality trade-off — it only activates when Claude is unavailable
+- Cost estimates in the dashboard are approximate (model-specific pricing applied)
 
 ## Requirements
 
 - Node.js ≥18
 - Zero external dependencies
-- [Codex CLI](https://github.com/openai/codex) for routing features (optional — gateway works as observer without it)
+- [Codex CLI](https://github.com/openai/codex) for routing/fallback features (optional)
+- [oh-my-codex](https://github.com/mcp-use/oh-my-codex) supported — auto-detected when installed
 
 ## Disclaimer
 
-This is NOT an official Anthropic product. cc-mux is an independent open-source tool that observes API traffic to provide routing and analytics.
+This is NOT an official Anthropic or OpenAI product. cc-mux is an independent open-source tool. Use at your own discretion.
 
 ## License
 

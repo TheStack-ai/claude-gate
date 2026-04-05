@@ -212,17 +212,17 @@ async function commandInit() {
       default_model: 'gpt-5.4',
     },
     shadow: {
-      enabled: hasCodex,
+      enabled: false,
       target_query_sources: ['agent:custom', 'agent:default', 'compact', 'verification_agent'],
       max_tool_count: 5,
       thinking_enabled: false,
     },
     routing: {
-      enabled: hasCodex,
+      enabled: false,
       rules: [
         {
           name: 'tool-continuation-to-codex',
-          enabled: hasCodex,
+          enabled: true,
           target: 'openai',
           model: 'gpt-5.4',
           condition: {
@@ -239,10 +239,14 @@ async function commandInit() {
 
   await fs.writeFile(USER_CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
   console.log(`Config created: ${USER_CONFIG_PATH}`);
-  console.log(`  Shadow eval: ${hasCodex ? 'enabled (Codex CLI detected)' : 'disabled (install Codex CLI to enable)'}`);
-  console.log(`  Routing:     ${hasCodex ? 'enabled (tool continuations → Codex)' : 'disabled (install Codex CLI to enable)'}`);
+  console.log(`  Shadow eval: disabled (enable in config for Claude vs Codex comparison)`);
+  console.log(`  Routing:     disabled (enable routing.enabled in config for tool-continuation routing)`);
   console.log(`  529 fallback: ${hasCodex ? 'enabled' : 'disabled (install Codex CLI to enable)'}`);
   console.log(`\nStart with:\n  cc-mux run`);
+  if (hasCodex) {
+    console.log(`\nTo enable Codex routing, edit ${USER_CONFIG_PATH}:`);
+    console.log(`  "routing": { "enabled": true }`);
+  }
 }
 
 async function commandStats() {
