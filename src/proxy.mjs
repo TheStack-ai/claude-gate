@@ -115,7 +115,14 @@ function filterProxyHeaders(headers = {}, host) {
   const filtered = {};
 
   for (const [key, value] of Object.entries(headers)) {
-    if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lower)) {
+      continue;
+    }
+    // Strip accept-encoding so upstream returns uncompressed SSE.
+    // The proxy needs to parse SSE events to extract usage metrics.
+    // Body is not modified — only the encoding negotiation changes.
+    if (lower === 'accept-encoding') {
       continue;
     }
 
