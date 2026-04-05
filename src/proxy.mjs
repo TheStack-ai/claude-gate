@@ -11,6 +11,7 @@ import { selectRoute } from './router.mjs';
 import { createShadowEvaluator } from './shadow.mjs';
 import { callCodexCli } from './codex-bridge.mjs';
 import { convertOpenAIResponseToAnthropicSse } from './stream-converter.mjs';
+import { createRetryResponseCache } from './cache.mjs';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -262,6 +263,7 @@ export async function proxyRequest({
   classifier,
   log,
   shadow,
+  cache = null,
   anthropicExecutor = null,
   openAIRequestImpl = null,
   codexFn = null,
@@ -284,6 +286,19 @@ export async function proxyRequest({
 
   turn.setClassification(classification);
 
+  // Retry cache: return cached response for repeated request-id
+  if (cache && classification.isRetry && requestId) {
+    const cached = cache.get(requestId);
+    if (cached) {
+      turn.setRoutedTo('cache');
+      turn.setResponseInfo({ status: cached.statusCode, headers: cached.headers });
+      res.writeHead(cached.statusCode, cached.headers);
+      res.end(cached.body);
+      await turn.finalize({ status: cached.statusCode });
+      return;
+    }
+  }
+
   let finalized = false;
   const finalizeTurn = async (status) => {
     if (finalized) {
@@ -296,6 +311,13 @@ export async function proxyRequest({
 
   const route = selectRoute(classification, config);
   const canUseOpenAIResponse = supportsOpenAIProxyResponse(parsedBody);
+
+  // Log routing decision reason
+  if (route) {
+    log.info?.('[cc-mux] routing to codex', { requestId, rule: route.name, lastMessageIsToolResult: classification.lastMessageIsToolResult });
+  } else if (classification.lastMessageIsToolResult === false && classification.lastMessageHasMixedToolResult) {
+    log.info?.('[cc-mux] skipped routing: mixed tool_result + text', { requestId });
+  }
 
   if (route?.target === 'openai' && canUseOpenAIResponse) {
     try {
@@ -324,10 +346,12 @@ export async function proxyRequest({
       const openaiBody = convertAnthropicToOpenAI(anthropicBody, config.openai);
       const model = route.model || config?.openai?.default_model || 'gpt-5.4';
       const runCodex = codexFn || callCodexCli;
+      const timeoutMs = config?.routing?.timeout_ms ?? 60_000;
       const codexResult = await runCodex({
         messages: openaiBody.messages || [],
         tools: openaiBody.tools || [],
         model,
+        timeoutMs,
       });
 
       if (codexResult.error) {
@@ -341,17 +365,23 @@ export async function proxyRequest({
       if (turn?.record) turn.record.model = model;
       turn?.observeChunk?.(payload);
 
-      res.writeHead(200, {
+      const responseHeaders = {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
         'content-length': payload.length,
-      });
+      };
+      res.writeHead(200, responseHeaders);
       res.end(payload);
+
+      if (cache && requestId) {
+        cache.set(requestId, { statusCode: 200, headers: responseHeaders, body: payload });
+      }
+
       await finalizeTurn(200);
       return;
     } catch (error) {
-      log.error?.('[claude-gate] streaming codex route failed; falling back to anthropic', {
+      log.error?.('[cc-mux] streaming codex route failed; falling back to anthropic', {
         error: error.message,
         requestId,
         route: route.name,
@@ -570,6 +600,7 @@ export async function startProxyServer(options = {}) {
     : await loadProxyConfig({ configPath: options.configPath });
   const config = configResult.config;
   const shadow = options.shadow ?? createShadowEvaluator({ config, log: options.log ?? console });
+  const cache = options.cache ?? createRetryResponseCache({ log: options.log ?? console });
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 8080;
   const log = options.log ?? console;
@@ -594,6 +625,7 @@ export async function startProxyServer(options = {}) {
         classifier,
         log,
         shadow,
+        cache,
         openAIRequestImpl: options.openAIRequestImpl ?? null,
         codexFn: options.codexFn ?? null,
       });
