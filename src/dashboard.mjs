@@ -463,7 +463,10 @@ export async function startDashboard(options = {}) {
         }
       }
 
-      if (changed || forceDraw) draw(forceDraw);
+      if (changed || forceDraw) {
+        ANSI.clear();
+        draw(true);
+      }
     })();
 
     try {
