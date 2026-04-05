@@ -66,6 +66,7 @@ const TRANSLATIONS = {
       fallback529: '529 recovered',
       apiCalls: 'API calls',
       avgLatency: 'Avg latency',
+      claudeCost: 'Claude cost',
       retries: 'Retries',
       dashboardStopped: 'Dashboard stopped.',
       keyHints: 'q quit  r refresh  Ctrl+C exit',
@@ -89,6 +90,7 @@ const TRANSLATIONS = {
       fallback529: '529 복구',
       apiCalls: 'API 호출',
       avgLatency: '평균 응답',
+      claudeCost: 'Claude 비용',
       retries: '재시도',
       dashboardStopped: 'dashboard 종료.',
       keyHints: 'q 종료  r 새로고침  Ctrl+C 종료',
@@ -234,6 +236,7 @@ export function createSessionState(options = {}) {
     codexInputTokens: 0,
     codexOutputTokens: 0,
     totalLatencyMs: 0,
+    claudeCost: 0,
     codexSavings: 0,
     recentEvents: [],
     startedAt: Date.now(),
@@ -258,13 +261,15 @@ export function ingestRecord(state, record) {
   state.totalLatencyMs += latencyMs;
   if (record.is_retry) state.retryCount += 1;
 
+  const opusCost = (inputTokens / 1_000_000) * OPUS_PRICING.input + (outputTokens / 1_000_000) * OPUS_PRICING.output;
   if (routedTo === 'openai') {
     state.codexCount += 1;
     state.codexInputTokens += inputTokens;
     state.codexOutputTokens += outputTokens;
-    state.codexSavings += (inputTokens / 1_000_000) * OPUS_PRICING.input + (outputTokens / 1_000_000) * OPUS_PRICING.output;
+    state.codexSavings += opusCost;
   } else {
     state.claudeCount += 1;
+    state.claudeCost += opusCost;
     if (status === 529) state.fallback529Count += 1;
   }
 
@@ -333,7 +338,7 @@ function renderFrame(state, cols, keyboardEnabled) {
   }
 
   if (state.fallback529Count > 0) {
-    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.fallback529, 12)}${YELLOW}${state.fallback529Count}${RESET}`, w)}${CYAN}│${RESET}`);
+    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.fallback529, 16)}${YELLOW}${state.fallback529Count}${RESET}`, w)}${CYAN}│${RESET}`);
   }
 
   lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
@@ -353,11 +358,18 @@ function renderFrame(state, cols, keyboardEnabled) {
 
   lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
 
-  // Session summary (compact)
+  // Session summary
   lines.push(`${CYAN}│${RESET}${pad(`  ${BOLD}${t.sections.session}${RESET}`, w)}${CYAN}│${RESET}`);
-  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.apiCalls, 14)}${state.apiCalls}${fitText(t.status.avgLatency, 14)}${formatSeconds(avgLatency)}`, w)}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}  ${hr}  ${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.apiCalls, 16)}${state.apiCalls}`, w)}${CYAN}│${RESET}`);
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.avgLatency, 16)}${formatSeconds(avgLatency)}`, w)}${CYAN}│${RESET}`);
+  const totalCost = state.claudeCost + state.codexSavings;
+  lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.claudeCost, 16)}${formatCost(state.claudeCost)}`, w)}${CYAN}│${RESET}`);
+  if (state.codexSavings > 0) {
+    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.savings, 16)}${GREEN}-${formatCost(state.codexSavings)}${RESET}`, w)}${CYAN}│${RESET}`);
+  }
   if (state.retryCount > 0) {
-    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.retries, 14)}${YELLOW}${state.retryCount}${RESET}`, w)}${CYAN}│${RESET}`);
+    lines.push(`${CYAN}│${RESET}${pad(`  ${fitText(t.status.retries, 16)}${YELLOW}${state.retryCount}${RESET}`, w)}${CYAN}│${RESET}`);
   }
 
   // Footer
