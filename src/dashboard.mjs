@@ -349,53 +349,45 @@ function renderFrame(state, cols, keyboardEnabled) {
   const totalTokens = state.totalInputTokens + state.totalOutputTokens;
   const startTimeStr = new Date(state.startedAt).toLocaleTimeString(t.locale, { hour12: false, hour: '2-digit', minute: '2-digit' });
 
-  // Header
+  // Header with ASCII logo
   lines.push(`${CYAN}╭${'─'.repeat(w)}╮${RESET}`);
-  lines.push(row(`${BOLD}  ${t.title}`));
+  lines.push(row(`${BOLD}${CYAN}   ___  ___   __  __ _   ___  __${RESET}`));
+  lines.push(row(`${BOLD}${CYAN}  / __|/ __| |  \\/  | | | \\ \\/ /${RESET}`));
+  lines.push(row(`${BOLD}${CYAN}  | (__| (__  | |\\/| | |_| |>  < ${RESET}`));
+  lines.push(row(`${BOLD}${CYAN}   \\___|\\___| |_|  |_|\\___//_/\\_\\${RESET}`));
+  lines.push(row(''));
   lines.push(row(`${DIM}  ${t.status.running(elapsedStr(Date.now() - state.startedAt, state.lang), startTimeStr)}${RESET}`));
-  lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
+  lines.push(`${CYAN}╠${'═'.repeat(w)}╣${RESET}`);
 
-  // Routing section
+  // Routing section — visual gauge
   lines.push(row(`  ${BOLD}${t.sections.routing}${RESET}`));
-  lines.push(row(`  ${hr}  `));
 
-  // Combined routing bar
-  const barWidth = Math.min(20, w - 30);
-  const codexFill = Math.round(codexRatio * barWidth);
-  const claudeFill = barWidth - codexFill;
-  const routingBar = `${DIM}${'█'.repeat(claudeFill)}${RESET}${GREEN}${'█'.repeat(codexFill)}${RESET}`;
-  lines.push(row(`  ${fitText(t.status.claudeReqs, 12)}${fitText(String(state.claudeCount), 6)}`));
-  lines.push(row(`  ${fitText(t.status.codexReqs, 12)}${GREEN}${fitText(String(state.codexCount), 6)}${RESET}`));
+  const gaugeWidth = Math.min(24, w - 20);
+  const codexFill = Math.round(codexRatio * gaugeWidth);
+  const claudeFill = gaugeWidth - codexFill;
+  const gauge = `${DIM}${'▓'.repeat(claudeFill)}${RESET}${GREEN}${'▓'.repeat(codexFill)}${RESET}`;
   const ratioColor = codexRatio > 0 ? GREEN : DIM;
-  lines.push(row(`  ${fitText(t.status.routingRatio, 12)}${ratioColor}${formatPercent(codexRatio)}${RESET}  ${routingBar}`));
+
+  lines.push(row(`  ${DIM}Claude${RESET} ${gauge} ${GREEN}Codex${RESET}`));
+  lines.push(row(`  ${fitText(String(state.claudeCount), 6)}${'·'.repeat(Math.max(0, gaugeWidth - 6))}${GREEN}${fitText(String(state.codexCount), 6)}${RESET}  ${ratioColor}${formatPercent(codexRatio)}${RESET}`));
 
   if (state.fallback529Count > 0) {
-    lines.push(row(`  ${fitText(t.status.fallback529, 16)}${YELLOW}${state.fallback529Count}${RESET}`));
+    lines.push(row(`  ${YELLOW}▲${RESET} ${fitText(t.status.fallback529, 16)}${YELLOW}${state.fallback529Count}${RESET}`));
   }
 
   lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
 
-  // Cost section (merged from routing + session)
+  // Cost + Latency — compact two-column style
   const savingsColor = state.codexSavings > 0 ? GREEN : DIM;
-  lines.push(row(`  ${fitText(t.status.claudeCost, 16)}${formatCost(state.claudeCost)}`));
-  lines.push(row(`  ${fitText(t.status.savings, 16)}${savingsColor}-${formatCost(state.codexSavings)}${RESET} ${DIM}${t.status.savingsNote}${RESET}`));
-  lines.push(row(`  ${fitText(t.status.totalTokens, 16)}${formatTokens(totalTokens)} tok`));
+  lines.push(row(`  ${BOLD}$${RESET} ${fitText(t.status.claudeCost, 14)}${BOLD}${formatCost(state.claudeCost)}${RESET}    ${savingsColor}${t.status.savings} -${formatCost(state.codexSavings)}${RESET}`));
+  lines.push(row(`  ${BOLD}◷${RESET} ${fitText(t.status.claudeAvgLatency, 14)}${formatSeconds(claudeAvgLatency)}${state.codexCount > 0 ? `    ${DIM}${t.status.codexAvgLatency} ${formatSeconds(codexAvgLatency)}${RESET}` : ''}`));
+  lines.push(row(`  ${BOLD}◆${RESET} ${fitText(t.status.totalTokens, 14)}${formatTokens(totalTokens)} tok${state.retryCount > 0 ? `    ${YELLOW}${t.status.retries} ${state.retryCount}${RESET}` : ''}`));
 
-  // Latency comparison
-  lines.push(row(`  ${fitText(t.status.claudeAvgLatency, 16)}${formatSeconds(claudeAvgLatency)}`));
-  if (state.codexCount > 0) {
-    lines.push(row(`  ${fitText(t.status.codexAvgLatency, 16)}${formatSeconds(codexAvgLatency)}`));
-  }
-
-  if (state.retryCount > 0) {
-    lines.push(row(`  ${fitText(t.status.retries, 16)}${YELLOW}${state.retryCount}${RESET}`));
-  }
-
-  lines.push(`${CYAN}├${'─'.repeat(w)}┤${RESET}`);
+  lines.push(`${CYAN}╠${'═'.repeat(w)}╣${RESET}`);
 
   // Live activity
-  lines.push(row(`  ${BOLD}${t.sections.live}${RESET}  ${DIM}${state.apiCalls} calls${RESET}`));
-  lines.push(row(`  ${hr}  `));
+  lines.push(row(`  ${BOLD}${t.sections.live}${RESET} ${DIM}(${state.apiCalls})${RESET}`));
+  lines.push(row(`  ${DIM}${'·'.repeat(w - 4)}${RESET}`));
 
   if (state.recentEvents.length === 0) {
     lines.push(row(`${DIM}  ${t.status.waiting}${RESET}`));
