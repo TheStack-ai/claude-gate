@@ -163,7 +163,7 @@ class ShadowContext {
   }
 
   complete() {
-    this._doComplete().catch(err => {
+    return this._doComplete().catch(err => {
       this.evaluator.log.error?.('[shadow] complete error', { error: err.message });
     });
   }

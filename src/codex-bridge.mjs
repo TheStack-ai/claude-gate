@@ -23,10 +23,10 @@ export async function callCodexCli({
     '--ephemeral',
     '-s', 'read-only',
     '--skip-git-repo-check',
-    prompt,
+    '-',
   ];
 
-  const result = await spawnCodex(codexPath, args, timeoutMs);
+  const result = await spawnCodex(codexPath, args, timeoutMs, prompt);
 
   return parseCodexOutput(result, model);
 }
@@ -55,7 +55,7 @@ function buildPrompt(messages, tools) {
   return parts.join('\n\n');
 }
 
-function spawnCodex(codexPath, args, timeoutMs) {
+function spawnCodex(codexPath, args, timeoutMs, stdinText = '') {
   return new Promise((resolve) => {
     const lines = [];
     let stderr = '';
@@ -66,7 +66,7 @@ function spawnCodex(codexPath, args, timeoutMs) {
       env: { ...process.env },
     });
 
-    proc.stdin.end();
+    proc.stdin.end(stdinText);
 
     proc.stdout.on('data', (chunk) => {
       const text = chunk.toString('utf8');
@@ -89,6 +89,102 @@ function spawnCodex(codexPath, args, timeoutMs) {
   });
 }
 
+function normalizeUsage(usage) {
+  if (!usage || typeof usage !== 'object') {
+    return null;
+  }
+
+  const promptTokens = usage.input_tokens || 0;
+  const completionTokens = usage.output_tokens || 0;
+
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+  };
+}
+
+function normalizeMessageText(item) {
+  if (!item || typeof item !== 'object') {
+    return '';
+  }
+
+  if (typeof item.text === 'string') {
+    return item.text;
+  }
+
+  if (!Array.isArray(item.content)) {
+    return '';
+  }
+
+  return item.content
+    .map((part) => {
+      if (typeof part === 'string') {
+        return part;
+      }
+
+      if (part?.type === 'output_text' || part?.type === 'text') {
+        return part.text ?? '';
+      }
+
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function normalizeToolCall(toolCall, fallbackIndex = 0) {
+  if (!toolCall || typeof toolCall !== 'object') {
+    return null;
+  }
+
+  const name = toolCall.function?.name ?? toolCall.name ?? null;
+  if (!name) {
+    return null;
+  }
+
+  const rawArguments = toolCall.function?.arguments ?? toolCall.arguments ?? '';
+
+  return {
+    id: toolCall.id ?? toolCall.call_id ?? `call_${fallbackIndex + 1}`,
+    type: 'function',
+    function: {
+      name,
+      arguments: typeof rawArguments === 'string' ? rawArguments : JSON.stringify(rawArguments),
+    },
+  };
+}
+
+function collectToolCalls(candidate) {
+  if (!candidate || typeof candidate !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(candidate.tool_calls)) {
+    return candidate.tool_calls
+      .map((toolCall, index) => normalizeToolCall(toolCall, index))
+      .filter(Boolean);
+  }
+
+  if (candidate.type === 'function_call' || candidate.type === 'tool_call' || candidate.type === 'custom_tool_call') {
+    const toolCall = normalizeToolCall(candidate);
+    return toolCall ? [toolCall] : [];
+  }
+
+  if (Array.isArray(candidate.content)) {
+    return candidate.content.flatMap((part, index) => {
+      if (part?.type === 'tool_call' || part?.type === 'function_call' || part?.type === 'custom_tool_call') {
+        const toolCall = normalizeToolCall(part, index);
+        return toolCall ? [toolCall] : [];
+      }
+
+      return [];
+    });
+  }
+
+  return [];
+}
+
 function parseCodexOutput({ lines, stderr, exitCode }, model) {
   if (exitCode !== 0 && lines.length === 0) {
     return {
@@ -101,21 +197,34 @@ function parseCodexOutput({ lines, stderr, exitCode }, model) {
 
   let text = '';
   let usage = null;
+  const toolCalls = [];
+  const seenToolCalls = new Set();
 
   for (const line of lines) {
     try {
       const event = JSON.parse(line);
 
       if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
-        text += (text ? '\n' : '') + (event.item.text || '');
+        const nextText = normalizeMessageText(event.item);
+        if (nextText) {
+          text += (text ? '\n' : '') + nextText;
+        }
+      }
+
+      for (const toolCall of collectToolCalls(event.item)) {
+        const key = `${toolCall.id}:${toolCall.function.name}:${toolCall.function.arguments}`;
+        if (!seenToolCalls.has(key)) {
+          seenToolCalls.add(key);
+          toolCalls.push(toolCall);
+        }
+      }
+
+      if (!usage && event.usage) {
+        usage = normalizeUsage(event.usage);
       }
 
       if (event.type === 'turn.completed' && event.usage) {
-        usage = {
-          prompt_tokens: event.usage.input_tokens || 0,
-          completion_tokens: event.usage.output_tokens || 0,
-          total_tokens: (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0),
-        };
+        usage = normalizeUsage(event.usage);
       }
     } catch {
       // skip non-JSON lines
@@ -130,9 +239,9 @@ function parseCodexOutput({ lines, stderr, exitCode }, model) {
       message: {
         role: 'assistant',
         content: text || null,
-        tool_calls: [],
+        tool_calls: toolCalls,
       },
-      finish_reason: 'stop',
+      finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
     }],
     usage,
   };

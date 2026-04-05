@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
-import { OpenAIToAnthropicStream, createStreamConverter } from '../src/stream-converter.mjs';
+import {
+  OpenAIToAnthropicStream,
+  convertOpenAIResponseToAnthropicSse,
+  createStreamConverter,
+} from '../src/stream-converter.mjs';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -314,6 +318,43 @@ test('handles chunked SSE (split across write boundaries)', async () => {
 test('createStreamConverter factory returns OpenAIToAnthropicStream', () => {
   const converter = createStreamConverter({ model: 'test' });
   assert.ok(converter instanceof OpenAIToAnthropicStream);
+});
+
+test('convertOpenAIResponseToAnthropicSse synthesizes Anthropic SSE from a non-streaming response', async () => {
+  const raw = await convertOpenAIResponseToAnthropicSse({
+    id: 'chatcmpl-sync',
+    model: 'gpt-5.4',
+    usage: { prompt_tokens: 14, completion_tokens: 6 },
+    choices: [{
+      finish_reason: 'tool_calls',
+      message: {
+        content: 'Reading the file.',
+        tool_calls: [{
+          id: 'call_sync',
+          type: 'function',
+          function: {
+            name: 'Read',
+            arguments: '{"path":"/tmp/demo.txt"}',
+          },
+        }],
+      },
+    }],
+  }, { model: 'gpt-5.4' });
+
+  const events = parseAnthropicEvents(raw.toString('utf8'));
+  assert.equal(events[0].event, 'message_start');
+  assert.equal(events[1].event, 'content_block_start');
+  assert.equal(events[2].data.delta.text, 'Reading the file.');
+
+  const toolStart = events.find((event) =>
+    event.event === 'content_block_start' && event.data.content_block.type === 'tool_use',
+  );
+  assert.ok(toolStart);
+  assert.equal(toolStart.data.content_block.name, 'Read');
+
+  const messageDelta = events.find((event) => event.event === 'message_delta');
+  assert.equal(messageDelta.data.delta.stop_reason, 'tool_use');
+  assert.equal(messageDelta.data.usage.output_tokens, 6);
 });
 
 test('maps finish_reason "length" to "max_tokens"', async () => {

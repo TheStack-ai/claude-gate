@@ -6,11 +6,11 @@ import path from 'node:path';
 import { createRequestClassifier } from './classifier.mjs';
 import { respondWithOpenAICompletion, shouldHandle529Fallback, supportsOpenAIProxyResponse } from './fallback.mjs';
 import { convertAnthropicToOpenAI } from './format.mjs';
-import { convertOpenAIToAnthropicResponse } from './fallback.mjs';
 import { MetricsLogger } from './logger.mjs';
 import { selectRoute } from './router.mjs';
 import { createShadowEvaluator } from './shadow.mjs';
 import { callCodexCli } from './codex-bridge.mjs';
+import { convertOpenAIResponseToAnthropicSse } from './stream-converter.mjs';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -257,6 +257,7 @@ export async function proxyRequest({
   shadow,
   anthropicExecutor = null,
   openAIRequestImpl = null,
+  codexFn = null,
 }) {
   const requestStartedAt = Date.now();
   const requestId = normalizeHeaderValue(req.headers['x-client-request-id']);
@@ -315,7 +316,8 @@ export async function proxyRequest({
       const anthropicBody = tryParseJsonBuffer(bodyBuffer);
       const openaiBody = convertAnthropicToOpenAI(anthropicBody, config.openai);
       const model = route.model || config?.openai?.default_model || 'gpt-5.4';
-      const codexResult = await callCodexCli({
+      const runCodex = codexFn || callCodexCli;
+      const codexResult = await runCodex({
         messages: openaiBody.messages || [],
         tools: openaiBody.tools || [],
         model,
@@ -325,17 +327,17 @@ export async function proxyRequest({
         throw new Error(codexResult.error.message || 'codex_cli_error');
       }
 
-      const anthropicResponse = convertOpenAIToAnthropicResponse(codexResult, { model });
-      const payload = Buffer.from(JSON.stringify(anthropicResponse));
+      const payload = await convertOpenAIResponseToAnthropicSse(codexResult, { model });
 
       turn?.setRoutedTo?.('openai');
-      turn?.setResponseInfo?.({ status: 200, headers: { 'content-type': 'application/json' } });
+      turn?.setResponseInfo?.({ status: 200, headers: { 'content-type': 'text/event-stream' } });
       if (turn?.record) turn.record.model = model;
-      turn?.addUsage?.(anthropicResponse.usage);
       turn?.observeChunk?.(payload);
 
       res.writeHead(200, {
-        'content-type': 'application/json',
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
         'content-length': payload.length,
       });
       res.end(payload);
@@ -577,7 +579,17 @@ export async function startProxyServer(options = {}) {
     }
 
     try {
-      await proxyRequest({ req, res, config, logger, classifier, log, shadow, openAIRequestImpl: options.openAIRequestImpl ?? null });
+      await proxyRequest({
+        req,
+        res,
+        config,
+        logger,
+        classifier,
+        log,
+        shadow,
+        openAIRequestImpl: options.openAIRequestImpl ?? null,
+        codexFn: options.codexFn ?? null,
+      });
     } catch (error) {
       log.error?.('[claude-gate] request handling failed', {
         error: error.message,

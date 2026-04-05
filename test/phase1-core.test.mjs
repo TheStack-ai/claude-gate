@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -7,7 +6,9 @@ import test from 'node:test';
 
 import { createRequestClassifier } from '../src/classifier.mjs';
 import { MetricsLogger } from '../src/logger.mjs';
-import { startProxyServer } from '../src/proxy.mjs';
+import { proxyRequest } from '../src/proxy.mjs';
+import { createShadowEvaluator } from '../src/shadow.mjs';
+import { createMockRequest, MockResponse } from './proxy-test-helpers.mjs';
 
 function createNowSequence(...values) {
   let index = 0;
@@ -16,50 +17,6 @@ function createNowSequence(...values) {
     index += 1;
     return value;
   };
-}
-
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.listen(0, '127.0.0.1', (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve(server.address());
-    });
-  });
-}
-
-function request({ port, body, headers = {} }) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host: '127.0.0.1',
-        port,
-        method: 'POST',
-        path: '/v1/messages',
-        headers: {
-          'content-type': 'application/json',
-          'content-length': Buffer.byteLength(body),
-          ...headers,
-        },
-      },
-      (res) => {
-        const chunks = [];
-        res.on('data', (chunk) => chunks.push(chunk));
-        res.on('end', () => {
-          resolve({
-            statusCode: res.statusCode,
-            body: Buffer.concat(chunks),
-          });
-        });
-      },
-    );
-
-    req.on('error', reject);
-    req.end(body);
-  });
 }
 
 test('classifier parses query source, retry, and shadow eligibility without mutating raw bytes', () => {
@@ -160,48 +117,8 @@ test('proxy forwards raw body unchanged and tees SSE metrics without buffering',
 
   const logPath = path.join(tempDir, 'metrics.jsonl');
   const logger = new MetricsLogger({ logPath });
-
-  let upstreamBody = null;
-  const upstream = http.createServer((req, res) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => {
-      upstreamBody = Buffer.concat(chunks);
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write(
-        'event: message_start\n' +
-          'data: {"type":"message_start","message":{"model":"claude-opus-4-6","usage":{"input_tokens":12,"cache_read_input_tokens":4,"cache_creation_input_tokens":2}}}\n\n',
-      );
-      res.end(
-        'event: message_delta\n' +
-          'data: {"type":"message_delta","usage":{"output_tokens":6}}\n\n',
-      );
-    });
-  });
-
-  const upstreamAddress = await listen(upstream);
   t.after(async () => {
-    await new Promise((resolve, reject) => {
-      upstream.close((error) => (error ? reject(error) : resolve()));
-    });
-  });
-
-  const proxy = await startProxyServer({
-    port: 0,
-    logger,
-    config: {
-      anthropic: {
-        base_url: `http://127.0.0.1:${upstreamAddress.port}`,
-      },
-    },
-    log: {
-      info() {},
-      error() {},
-    },
-  });
-
-  t.after(async () => {
-    await proxy.shutdown('test');
+    await logger.close();
   });
 
   const body = JSON.stringify({
@@ -214,21 +131,53 @@ test('proxy forwards raw body unchanged and tees SSE metrics without buffering',
     },
   });
 
-  const response = await request({
-    port: proxy.port,
+  let upstreamBody = null;
+  const { req, send } = createMockRequest({
     body,
     headers: {
       'x-client-request-id': 'req-1',
       'x-claude-code-session-id': 'session-1',
     },
   });
+  const res = new MockResponse();
 
+  const requestPromise = proxyRequest({
+    req,
+    res,
+    config: {
+      anthropic: {
+        base_url: 'http://anthropic.invalid',
+      },
+    },
+    logger,
+    classifier: createRequestClassifier(),
+    log: {
+      info() {},
+      error() {},
+    },
+    shadow: createShadowEvaluator({ config: { shadow: { enabled: false } }, log: { info() {}, error() {} } }),
+    anthropicExecutor: async ({ bodyBuffer }) => {
+      upstreamBody = bodyBuffer;
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'text/event-stream' },
+        body:
+          'event: message_start\n' +
+          'data: {"type":"message_start","message":{"model":"claude-opus-4-6","usage":{"input_tokens":12,"cache_read_input_tokens":4,"cache_creation_input_tokens":2}}}\n\n' +
+          'event: message_delta\n' +
+          'data: {"type":"message_delta","usage":{"output_tokens":6}}\n\n',
+      };
+    },
+  });
+
+  send();
+  await requestPromise;
   await logger.close();
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(res.statusCode, 200);
   assert.equal(upstreamBody.toString('utf8'), body);
-  assert.match(response.body.toString('utf8'), /message_start/);
-  assert.match(response.body.toString('utf8'), /message_delta/);
+  assert.match(res.body.toString('utf8'), /message_start/);
+  assert.match(res.body.toString('utf8'), /message_delta/);
 
   const logLines = (await readFile(logPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
   const logged = logLines.at(-1);

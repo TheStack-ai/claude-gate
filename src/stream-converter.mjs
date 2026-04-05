@@ -9,7 +9,7 @@
  *   content_block_stop → message_delta → message_stop
  */
 
-import { Transform } from 'node:stream';
+import { PassThrough, Transform } from 'node:stream';
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -17,6 +17,95 @@ import { Transform } from 'node:stream';
 
 function sseFrame(event, data) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function openaiSseFrame(payload) {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function openaiDoneFrame() {
+  return 'data: [DONE]\n\n';
+}
+
+function collectStream(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+}
+
+function normalizeOpenAITextContent(content) {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === 'string') {
+        return part;
+      }
+
+      if (part?.type === 'text' || part?.type === 'output_text') {
+        return part.text ?? '';
+      }
+
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildSyntheticOpenAISse(openaiResponse) {
+  const choice = openaiResponse?.choices?.[0] ?? {};
+  const message = choice.message ?? {};
+  const payloadId = openaiResponse?.id ?? `chatcmpl_proxy_${Date.now()}`;
+  const chunks = [];
+  const text = normalizeOpenAITextContent(message.content);
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+  if (text || toolCalls.length > 0) {
+    const delta = { role: 'assistant' };
+
+    if (text) {
+      delta.content = text;
+    }
+
+    if (toolCalls.length > 0) {
+      delta.tool_calls = toolCalls.map((toolCall, index) => ({
+        index,
+        id: toolCall.id,
+        type: toolCall.type ?? 'function',
+        function: {
+          name: toolCall.function?.name ?? '',
+          arguments: toolCall.function?.arguments ?? '',
+        },
+      }));
+    }
+
+    chunks.push(openaiSseFrame({
+      id: payloadId,
+      choices: [{ index: 0, delta }],
+    }));
+  }
+
+  chunks.push(openaiSseFrame({
+    id: payloadId,
+    choices: [{
+      index: 0,
+      delta: {},
+      finish_reason: choice.finish_reason ?? (toolCalls.length > 0 ? 'tool_calls' : 'stop'),
+    }],
+    usage: openaiResponse?.usage,
+  }));
+  chunks.push(openaiDoneFrame());
+
+  return chunks.join('');
 }
 
 function parseOpenAISseChunk(raw) {
@@ -346,4 +435,18 @@ export class OpenAIToAnthropicStream extends Transform {
  */
 export function createStreamConverter(options = {}) {
   return new OpenAIToAnthropicStream(options);
+}
+
+export async function convertOpenAIResponseToAnthropicSse(openaiResponse, { model, inputTokens } = {}) {
+  const converter = createStreamConverter({
+    model: model ?? openaiResponse?.model ?? 'unknown',
+    inputTokens: inputTokens ?? openaiResponse?.usage?.prompt_tokens ?? 0,
+  });
+  const input = new PassThrough();
+  const outputPromise = collectStream(converter);
+
+  input.pipe(converter);
+  input.end(buildSyntheticOpenAISse(openaiResponse));
+
+  return outputPromise;
 }

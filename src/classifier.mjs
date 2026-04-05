@@ -64,14 +64,36 @@ function isAgentQuerySource(querySource) {
   return typeof querySource === 'string' && querySource.startsWith(AGENT_QUERY_SOURCE_PREFIX);
 }
 
-function detectLastMessageIsToolResult(body) {
+function getLastUserContentBlocks(body) {
   const messages = body?.messages;
-  if (!Array.isArray(messages) || messages.length === 0) return false;
+  if (!Array.isArray(messages) || messages.length === 0) return null;
   const last = messages[messages.length - 1];
-  if (last?.role !== 'user') return false;
-  const content = last?.content;
-  if (!Array.isArray(content)) return false;
-  return content.some(block => block?.type === 'tool_result');
+  if (last?.role !== 'user') return null;
+  return Array.isArray(last?.content) ? last.content : null;
+}
+
+function detectLastMessageIsToolResult(body) {
+  const content = getLastUserContentBlocks(body);
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((block) => block?.type === 'tool_result');
+}
+
+function detectLastMessageHasMixedToolResult(body) {
+  const content = getLastUserContentBlocks(body);
+  if (!Array.isArray(content) || content.length === 0) return false;
+
+  let hasToolResult = false;
+  let hasNonToolResult = false;
+
+  for (const block of content) {
+    if (block?.type === 'tool_result') {
+      hasToolResult = true;
+    } else {
+      hasNonToolResult = true;
+    }
+  }
+
+  return hasToolResult && hasNonToolResult;
 }
 
 export class RequestClassifier {
@@ -95,7 +117,8 @@ export class RequestClassifier {
     const speed = body?.speed ?? null;
     const model = body?.model ?? null;
     const lastMessageIsToolResult = detectLastMessageIsToolResult(body);
-    const shadowEligible = lastMessageIsToolResult || (isAgentQuerySource(querySource) && toolCount <= 5 && !thinking);
+    const lastMessageHasMixedToolResult = detectLastMessageHasMixedToolResult(body);
+    const shadowEligible = lastMessageIsToolResult || (!lastMessageHasMixedToolResult && isAgentQuerySource(querySource) && toolCount <= 5 && !thinking);
 
     return {
       sessionId,
@@ -156,4 +179,3 @@ export class RequestClassifier {
 export function createRequestClassifier(options) {
   return new RequestClassifier(options);
 }
-
