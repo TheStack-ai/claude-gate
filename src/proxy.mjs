@@ -367,11 +367,10 @@ export async function proxyRequest({
       const responseHeaders = {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
-        connection: 'keep-alive',
-        'content-length': payload.length,
       };
       res.writeHead(200, responseHeaders);
-      res.end(payload);
+      res.write(payload);
+      res.end();
 
       if (cache && requestId) {
         cache.set(requestId, { statusCode: 200, headers: responseHeaders, body: payload });

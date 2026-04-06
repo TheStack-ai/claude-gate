@@ -37,6 +37,13 @@ export class MockResponse extends EventEmitter {
     this.headersSent = true;
   }
 
+  write(chunk) {
+    if (chunk) {
+      this.chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return true;
+  }
+
   end(chunk) {
     if (chunk) {
       this.chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
