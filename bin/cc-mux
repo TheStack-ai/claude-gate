@@ -227,6 +227,7 @@ async function commandInit() {
           model: 'gpt-5.4',
           condition: {
             last_message_tool_result: true,
+            max_body_bytes: 512000,
           },
         },
       ],

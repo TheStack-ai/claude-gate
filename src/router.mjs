@@ -33,6 +33,14 @@ function matchesLastMessageToolResult(lastMessageIsToolResult, conditionValue) {
   return lastMessageIsToolResult === conditionValue;
 }
 
+function matchesMaxBodyBytes(rawBodyBytes, maxBytes) {
+  if (typeof maxBytes !== 'number' || !Number.isFinite(maxBytes)) {
+    return true;
+  }
+
+  return rawBodyBytes <= maxBytes;
+}
+
 export function matchesRoutingRule(rule, classification = {}) {
   if (!rule || typeof rule !== 'object' || rule.enabled === false) {
     return false;
@@ -44,7 +52,8 @@ export function matchesRoutingRule(rule, classification = {}) {
     matchesQuerySource(classification.querySource ?? null, condition.query_source) &&
     matchesToolCount(classification.toolCount ?? 0, condition.tool_count_max) &&
     matchesThinking(classification.thinking ?? false, condition.thinking_enabled) &&
-    matchesLastMessageToolResult(classification.lastMessageIsToolResult ?? false, condition.last_message_tool_result)
+    matchesLastMessageToolResult(classification.lastMessageIsToolResult ?? false, condition.last_message_tool_result) &&
+    matchesMaxBodyBytes(classification.rawBodyBytes ?? 0, condition.max_body_bytes)
   );
 }
 

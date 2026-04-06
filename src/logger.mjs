@@ -176,7 +176,9 @@ export class TurnMetricsCollector {
     this.record.status = status ?? this.record.status;
     const contentType = String(headerValue(headers, 'content-type') ?? '').toLowerCase();
     const contentEncoding = String(headerValue(headers, 'content-encoding') ?? '').toLowerCase();
-    this.isSse = contentType.includes('text/event-stream') && !contentEncoding.includes('gzip');
+    // Parse SSE if content-type is event-stream and response is not compressed
+    const isCompressed = contentEncoding.length > 0 && contentEncoding !== 'identity';
+    this.isSse = contentType.includes('text/event-stream') && !isCompressed;
   }
 
   setRoutedTo(routedTo) {
