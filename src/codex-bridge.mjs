@@ -214,10 +214,14 @@ function parseCodexOutput({ lines, stderr, exitCode }, model) {
   const toolCalls = [];
   const seenToolCalls = new Set();
 
+  const unmatchedTypes = new Set();
+
   for (const line of lines) {
     try {
       const event = JSON.parse(line);
+      const type = event.type ?? 'unknown';
 
+      // agent_message — primary text output
       if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
         const nextText = normalizeMessageText(event.item);
         if (nextText) {
@@ -225,11 +229,42 @@ function parseCodexOutput({ lines, stderr, exitCode }, model) {
         }
       }
 
+      // message.completed / response.completed — alternative output formats
+      if ((event.type === 'message.completed' || event.type === 'response.completed') && event.message) {
+        const nextText = normalizeMessageText(event.message);
+        if (nextText) {
+          text += (text ? '\n' : '') + nextText;
+        }
+        for (const toolCall of collectToolCalls(event.message)) {
+          const key = `${toolCall.id}:${toolCall.function.name}:${toolCall.function.arguments}`;
+          if (!seenToolCalls.has(key)) {
+            seenToolCalls.add(key);
+            toolCalls.push(toolCall);
+          }
+        }
+      }
+
+      // item.completed with other item types (function_call, tool_call, etc.)
       for (const toolCall of collectToolCalls(event.item)) {
         const key = `${toolCall.id}:${toolCall.function.name}:${toolCall.function.arguments}`;
         if (!seenToolCalls.has(key)) {
           seenToolCalls.add(key);
           toolCalls.push(toolCall);
+        }
+      }
+
+      // output array in response events
+      if (Array.isArray(event.output)) {
+        for (const item of event.output) {
+          const itemText = normalizeMessageText(item);
+          if (itemText) text += (text ? '\n' : '') + itemText;
+          for (const toolCall of collectToolCalls(item)) {
+            const key = `${toolCall.id}:${toolCall.function.name}:${toolCall.function.arguments}`;
+            if (!seenToolCalls.has(key)) {
+              seenToolCalls.add(key);
+              toolCalls.push(toolCall);
+            }
+          }
         }
       }
 
@@ -240,16 +275,21 @@ function parseCodexOutput({ lines, stderr, exitCode }, model) {
       if (event.type === 'turn.completed' && event.usage) {
         usage = normalizeUsage(event.usage);
       }
+
+      // Track unmatched types for debugging
+      if (!text && toolCalls.length === 0 && !['turn.started', 'turn.completed', 'item.started'].includes(type)) {
+        unmatchedTypes.add(type);
+      }
     } catch {
       // skip non-JSON lines
     }
   }
 
-  // Empty response (no text, no tool calls) means parsing extracted nothing useful.
-  // Return error so the proxy falls back to Anthropic instead of sending an empty SSE stream.
+  // Empty response — include unmatched event types for diagnosis
   if (!text && toolCalls.length === 0) {
+    const types = unmatchedTypes.size > 0 ? ` types=[${[...unmatchedTypes].join(',')}]` : '';
     return {
-      error: { message: `codex returned no usable content (exit ${exitCode}, ${lines.length} lines parsed)` },
+      error: { message: `codex returned no usable content (exit ${exitCode}, ${lines.length} lines parsed${types})` },
       choices: [],
       usage,
       model,
